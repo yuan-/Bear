@@ -13,6 +13,9 @@
   description: 'Improvements or fixes to docs (README, man page, comments).'
 - name: question
   color: 'cc317c'
+- name: tracking
+  color: '7057ff'
+  description: 'Project work item tracked by the maintainer (not user-reported).'
 
 # --- Disposition ---
 - name: duplicate
