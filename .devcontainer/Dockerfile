@@ -1,4 +1,4 @@
-FROM fedora:43
+FROM fedora:44
 
 ENV RUSTUP_HOME=/root/.rustup \
     CARGO_HOME=/root/.cargo \
