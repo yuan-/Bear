@@ -127,23 +127,11 @@ Given a C source file and a build script that runs `$CC -c test.c`:
 
 ## Notes
 
-### Alternatives considered and rejected
-
-**POSIX shell-word parsing (`shell_words::split`).** Handles quoted
-program names and paths with spaces. Rejected: the spec explicitly
-redirects such cases to `CFLAGS`, and the parser's quote-aware edge
-cases (malformed quotes, backslash-as-escape on Windows paths) created
-test surface area with no matching user need. Whitespace splitting
-matches the shape the spec actually supports and sidesteps all of
-this.
-
-**Full shell expansion (`sh -c 'command -v "$CC"'`).** Would resolve
-everything the way the build system would. Rejected: requires spawning
-a shell, and the common Make/Autoconf convention is effectively
-`$(firstword $(CC))` plus the rest as flags, which is what whitespace
-splitting gives us directly.
-
-### Related
-
 - Issue #686 -- bare-name CC resolution.
-- `interception-wrapper-mechanism`, `interception-wrapper-recursion`.
+- Related requirements: `interception-wrapper-mechanism`,
+  `interception-wrapper-recursion`.
+
+## Rationale
+
+- [Whitespace split, no shell parser](../rationale/compiler-env-flag-parsing.md) -
+  why the env-var value is split on whitespace instead of shell-parsed.

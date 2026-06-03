@@ -77,27 +77,6 @@ compilers from environment variables and common names. Cross-compilers
 with unusual names (e.g. `arm-none-eabi-gcc`) are only intercepted if
 they appear in `CC`, `CXX`, or similar variables.
 
-## Design decisions
-
-**Hard links, not symlinks**: Wrappers are hard links to `bear-wrapper`,
-not symlinks. This is because tools like ccache detect symlinks to
-themselves and skip them, but do not detect hard links. While this
-creates the ccache recursion problem described in
-`interception-wrapper-recursion`, it ensures that ccache does not skip
-Bear's wrapper entirely.
-
-**Deterministic directory name**: Using `.bear/` in the current working
-directory (rather than a random temp dir) ensures that paths recorded
-during `./configure` remain valid during `make`, provided both run
-under the same Bear invocation. This was a deliberate choice after
-issue #654 showed that temp directories break multi-step builds.
-
-**Compiler resolution at startup**: Bear resolves bare compiler names
-to absolute paths once at startup, not each time the wrapper is
-invoked. This avoids repeated PATH lookups and ensures the wrapper
-configuration is self-contained. The tradeoff is that if PATH changes
-during the build, the wrapper still uses the originally resolved path.
-
 ## Testing
 
 Given a project with a single C source file:
@@ -168,3 +147,8 @@ Given a successful build:
   vs. preload mode. The default selection (wrapper on macOS/Windows,
   preload on Linux) handles the common case; the configuration file
   covers the rest.
+
+## Rationale
+
+- [Hard links, deterministic directory, resolve-at-startup](../rationale/wrapper-mode-design-decisions.md) -
+  why each wrapper-setup choice was made.

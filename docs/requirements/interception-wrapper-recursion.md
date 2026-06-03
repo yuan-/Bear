@@ -150,36 +150,12 @@ leaving other tests ccache-free.
 
 ## Notes
 
-### Alternatives considered and rejected
+- Issue #445 -- original PATH-ordering report.
+- Issue #686 -- bare-name CC resolution
+  (`wrapper_mode_resolves_cc_bare_name_via_path`).
+- Related requirement: `interception-wrapper-mechanism`.
 
-**Setting `CCACHE_COMPILER` in the wrapper's child environment.**
-The original proposal. Rejected because the path the wrapper knows
-IS the ccache symlink (that is what `which gcc` returned at setup),
-and `CCACHE_COMPILER` pointing at a symlink-to-ccache makes ccache
-recurse into itself. Empirically verified: on Fedora,
-`CCACHE_COMPILER=/usr/lib64/ccache/gcc ccache gcc -c foo.c` hangs and
-must be killed; `CCACHE_COMPILER=/usr/bin/gcc` works. The fix would
-have required also resolving past ccache to get the real path --
-which is precisely what this requirement does, making `CCACHE_COMPILER`
-redundant. It is also ccache-specific and would not help with icecc,
-distcc, or any other wrapper that lacks an equivalent variable.
+## Rationale
 
-**`CCACHE_PATH` alternative.** Set `CCACHE_PATH` to PATH minus
-`.bear/`. Rejected: ccache-specific (no equivalent for other
-wrappers), requires enumerating a safe PATH anyway, and does not
-address the deeper issue (Bear's config pointing at the wrong
-executable).
-
-**Removing masquerade directories from the child's PATH.** Rejected:
-masquerade directories might contain binaries other than the ones
-that loop (e.g. some installs put `distcc` itself in the same dir);
-stripping them globally would be heavy-handed. Filtering Bear's own
-lookup PATH is the narrower intervention.
-
-### Related
-
-- Issue #445 -- original PATH-ordering report
-- Issue #686 -- bare-name CC resolution (`wrapper_mode_resolves_cc_bare_name_via_path`)
-- Related requirement: `interception-wrapper-mechanism`
-- ccache 4.x manual: https://ccache.dev/manual/4.10.2.html
-- icecream masquerade setup: https://github.com/icecc/icecream
+- [Filter Bear's lookup PATH, not the alternatives](../rationale/wrapper-recursion-ccache-alternatives.md) -
+  why `CCACHE_COMPILER`, `CCACHE_PATH`, and PATH-stripping were rejected.
