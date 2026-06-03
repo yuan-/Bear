@@ -103,11 +103,41 @@ For architectural changes or new features:
 
 ## Code guidelines
 
-- Follow Rust 2024 edition idioms
-- Maintain existing code structure
-- Write tests for new functionality
-- Keep dependencies minimal
-- No speculative features or over-engineering
+This is the shared house style for every workspace crate. The per-crate
+`CLAUDE.md` files add only crate-specific constraints on top of it; they
+do not restate these rules.
+
+- **Edition**: Rust 2024 idioms (`edition = "2024"` in `Cargo.toml`).
+- **File header**: every `.rs` file starts with
+  `// SPDX-License-Identifier: GPL-3.0-or-later` as its first line, before
+  any `//!` module doc. Bear is GPL-3.0-or-later (see `COPYING`).
+- **Error handling**: domain errors are `thiserror` enums in the library
+  code; the binaries (`bear/src/bin/`) use `anyhow::Result` with
+  `.context(...)` at the boundary and turn any `Err` into a non-zero exit.
+  No error paths for states that cannot occur.
+- **Module structure**: modules are organised into directories by
+  responsibility (`output/`, `intercept/`, `semantic/`, `config/`).
+  Extend an existing module before adding one; keep each module's public
+  surface as small as the crate needs.
+- **Abstraction**: introduce a trait only for a real polymorphism seam
+  with a second implementation in sight. No speculative features or
+  over-engineering.
+- **Comments** explain *why*, not *what*; default to none unless a subtle
+  invariant would otherwise need re-deriving.
+- **Tests**: unit tests live next to the code (`#[cfg(test)] mod tests`);
+  behavioural contracts get integration tests under `integration-tests/`,
+  tagged `// Requirements: <id>` (see `docs/requirements/CLAUDE.md`).
+- **Dependencies**: keep the tree minimal; a new dependency needs a real
+  justification, not convenience.
+
+## Commit messages
+
+- Imperative subject under ~70 characters, with a conventional-commit area
+  prefix (`docs:`, `fix:`, `feat:`, `chore:`, `test:`, `refactor:`, ...),
+  scoped where it sharpens the scan-line (`docs(requirements): ...`).
+- Blank line, then a body explaining the *why*; the diff shows the *what*.
+- Reference a requirement ID when the commit implements or changes that
+  contract, and an issue or PR only when it adds context the body can't.
 
 ## Output format
 
