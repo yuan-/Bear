@@ -127,20 +127,14 @@ that resolves (after canonicalization) to the ccache wrapper:
 
 ## Notes
 
-- See `default_cc.md` for the design discussion that selected this
-  approach over PR #695 (per-invocation probe) and over the per-OS
-  defaults variant.
 - Override mechanism: by user request, the only way to disable the probe
   for a given path is to declare it in `compilers:`. There is no
   process-wide off switch; the override is per-path and explicit.
-- No regex fallback for ambiguous names: the original implementation
-  layered the probe on top of the regex (probe-then-regex), so probe
-  failure silently defaulted to GCC. That re-introduced the bug on the
-  very platforms the probe was meant to fix. The current design makes
-  the probe the sole classifier so the failure mode is loud (no entry)
-  rather than wrong (entry with mis-parsed flags). `gcc.yaml` carries a
-  comment explaining why `cc`/`c++` are absent from its recognize list.
-- Ambiguous-names list is intentionally minimal (`cc`, `c++`). Cross-
-  prefixed variants (`aarch64-linux-gnu-cc`) are not in the list because
-  cross-toolchains are overwhelmingly GCC and the regex already handles
-  them; if a real BSD cross-toolchain case appears, the list can grow.
+- `gcc.yaml` carries a comment explaining why `cc`/`c++` are absent from
+  its recognize list.
+
+## Rationale
+
+- [Cached version probe as sole classifier](../rationale/ambiguous-cc-version-probe.md) -
+  why the probe replaces per-OS defaults, a regex fallback, and the
+  per-invocation probe (PR #695).
