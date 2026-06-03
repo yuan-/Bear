@@ -3,7 +3,7 @@
 # referencing it via a `Requirements: <id>` tag.
 #
 # Run from the repo root:
-#     ./requirements/check-coverage.sh
+#     ./scripts/check-requirements-coverage.sh
 #
 # Exit codes:
 #   0 - every implemented requirement has at least one test reference
@@ -15,8 +15,8 @@ set -eu
 script_dir="$(cd "$(dirname "$0")" && pwd)"
 repo_root="$(cd "${script_dir}/.." && pwd)"
 
-if [ ! -d "${repo_root}/requirements" ]; then
-    echo "error: requirements directory not found at ${repo_root}/requirements" >&2
+if [ ! -d "${repo_root}/docs/requirements" ]; then
+    echo "error: requirements directory not found at ${repo_root}/docs/requirements" >&2
     exit 2
 fi
 
@@ -27,7 +27,7 @@ search_roots="${repo_root}/bear ${repo_root}/intercept-preload ${repo_root}/inte
 missing=0
 checked=0
 
-for file in "${repo_root}/requirements"/*.md; do
+for file in "${repo_root}/docs/requirements"/*.md; do
     [ -e "${file}" ] || continue
     base="$(basename "${file}" .md)"
 

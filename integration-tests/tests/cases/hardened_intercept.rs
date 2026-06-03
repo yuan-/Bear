@@ -81,7 +81,7 @@
 //! strips `bear-lib` from `LD_PRELOAD` after an `env -i`, so the env-clear
 //! tests here fail. This is a packaging-side concern, not a Bear defect -
 //! see the "Preload conflicts with sandboxes" limitation in
-//! `requirements/interception-preload-mechanism.md`.
+//! `docs/requirements/interception-preload-mechanism.md`.
 
 use crate::fixtures::constants::*;
 use crate::fixtures::infrastructure::*;
