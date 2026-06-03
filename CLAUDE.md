@@ -93,39 +93,29 @@ The workspace builds in three layers before linking the user-facing binaries:
 For a new feature or architectural change: write a requirement first (see
 `docs/requirements/CLAUDE.md`), present a short decision log (approach,
 alternatives considered, trade-offs), and wait for approval before
-implementing. Then add integration tests that cite the requirement.
+implementing. Develop it test-first (TDD): write the failing test that
+cites the requirement, then the code. Before committing a change of this
+size, have a review subagent on a different model check it (the `Agent`
+tool with a different `model`).
 
 A bug fix that does not change a contract skips straight to test + fix,
-citing the governing requirement if one exists.
+citing the governing requirement if one exists. The different-model review
+is reserved for feature and architectural changes, not routine fixes.
 
 ## Code guidelines
 
-This is the shared house style for every workspace crate. The per-crate
-`CLAUDE.md` files add only crate-specific constraints on top of it; they
-do not restate these rules.
+Always-on, language-agnostic standards for every workspace crate:
 
-- **Edition**: Rust 2024 idioms (`edition = "2024"` in `Cargo.toml`).
-- **File header**: every `.rs` file starts with
-  `// SPDX-License-Identifier: GPL-3.0-or-later` as its first line, before
-  any `//!` module doc. Bear is GPL-3.0-or-later (see `COPYING`).
-- **Error handling**: domain errors are `thiserror` enums in the library
-  code; the binaries (`bear/src/bin/`) use `anyhow::Result` with
-  `.context(...)` at the boundary and turn any `Err` into a non-zero exit.
-  No error paths for states that cannot occur.
-- **Module structure**: modules are organised into directories by
-  responsibility (`output/`, `intercept/`, `semantic/`, `config/`).
-  Extend an existing module before adding one; keep each module's public
-  surface as small as the crate needs.
-- **Abstraction**: introduce a trait only for a real polymorphism seam
-  with a second implementation in sight. No speculative features or
-  over-engineering.
-- **Comments** explain *why*, not *what*; default to none unless a subtle
-  invariant would otherwise need re-deriving.
-- **Tests**: unit tests live next to the code (`#[cfg(test)] mod tests`);
-  behavioural contracts get integration tests under `integration-tests/`,
-  tagged `// Requirements: <id>` (see `docs/requirements/CLAUDE.md`).
-- **Dependencies**: keep the tree minimal; a new dependency needs a real
-  justification, not convenience.
+- Maintain the existing code structure; extend before adding.
+- Keep dependencies minimal; a new dependency needs a real justification,
+  not convenience.
+- No speculative features or over-engineering.
+
+Rust file conventions (edition, SPDX header, error handling, module
+structure) live in `.claude/rules/rust.md`, and test conventions in
+`.claude/rules/testing.md`. Both are path-scoped to `.rs` files, so they
+load when Claude edits Rust. The per-crate `CLAUDE.md` files add only
+crate-specific constraints on top of these.
 
 ## Commit messages
 
