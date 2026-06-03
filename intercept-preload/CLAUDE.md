@@ -29,6 +29,17 @@ On unsupported platforms (e.g., Windows), the build warns and skips library gene
 `exec` family, `posix_spawn`, `popen`, `system`. Only functions detected as
 available on the host at build time (via `platform-checks`).
 
+## Unsafe code
+
+This crate is where almost all of Bear's `unsafe` lives (FFI, `dlsym`,
+async-signal-safe handlers). Annotate it consistently:
+
+- Every `unsafe fn` carries a `/// # Safety` doc comment stating the
+  caller's obligations.
+- Each `unsafe {}` block gets an inline `// SAFETY:` comment when its
+  reasoning is not already covered by the enclosing function's `# Safety`
+  section.
+
 ## Build script duties
 
 `build.rs` is platform-gated to `cfg(target_family = "unix")` and on
