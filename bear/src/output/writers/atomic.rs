@@ -10,6 +10,16 @@ use std::{fs, path};
 ///
 /// The file is first written to a temporary file and then renamed to the final file name.
 /// This ensures that the output file is not left in an inconsistent state in case of errors.
+/// Because the rename happens only after serialization succeeds, the original file survives
+/// any failure during writing -- including signals that cannot be caught such as `SIGKILL`;
+/// the guarantee does not rely on signal handling. `rename(2)` is atomic only when source and
+/// destination share a filesystem, so the temp path is co-located with the output (the same
+/// path with a `.tmp` extension). That temp path is deterministic rather than random, which
+/// keeps cleanup simple at the cost of racing two Bear processes writing the same output;
+/// concurrent writes to one database are intentionally unsupported. On Windows the underlying
+/// `MoveFileEx`/`MOVEFILE_REPLACE_EXISTING` is not fully atomic under all conditions, a
+/// platform limitation Bear accepts. On failure the error references the temp path for a
+/// serialization error and the final path for a rename error, to point at the likely cause.
 pub(crate) struct AtomicClangOutputWriter<T: IteratorWriter<clang::Entry>> {
     writer: T,
     temp_path: path::PathBuf,

@@ -4,6 +4,14 @@ This directory captures functional and non-functional requirements for Bear.
 Requirements are the source of truth for what Bear should do. Tests (integration
 and unit) verify that implemented requirements work correctly.
 
+Requirements are **contract-only**: they describe what the user can expect, not
+where the bits live and not why the design was chosen. Keep literal config keys,
+CLI flag names, and schema fragments out of a requirement body - describe the
+behaviour ("a configuration option toggles inlining") and let the man page
+(`man/bear.1.md`) name the key. The *why* belongs in
+[`../rationale/`](../rationale/) (link it from a `## Rationale` section); the
+*how* belongs in the code and its comments.
+
 ## File naming
 
 ```
@@ -50,7 +58,15 @@ These are the canonical scenarios; tests implement them.
 
 ## Notes
 
-Design decisions, trade-offs, links to issues or discussions.
+Brief decisions, links to issues or discussions. A one-line decision is fine
+here; substantial reasoning or a rejected alternative goes in a rationale entry
+instead, linked below.
+
+## Rationale
+
+Optional. A list of links to the rationale entries under
+[`../rationale/`](../rationale/) that motivated this requirement - one short
+label per link, no prose. Omit the section when there is nothing to link.
 ```
 
 ## Status lifecycle
@@ -102,12 +118,12 @@ grep -rn "Requirements:.*output-append" bear/ intercept-preload/ integration-tes
 
 ## Coverage check
 
-`requirements/check-coverage.sh` scans every requirement file and verifies that
-each `implemented` requirement has at least one `Requirements:` tag referencing
-it. Run it from the repo root:
+`scripts/check-requirements-coverage.sh` scans every requirement file and
+verifies that each `implemented` requirement has at least one `Requirements:`
+tag referencing it. Run it from the repo root:
 
 ```sh
-./requirements/check-coverage.sh
+./scripts/check-requirements-coverage.sh
 ```
 
 The script exits non-zero if any `implemented` requirement lacks coverage.
@@ -143,5 +159,18 @@ The link between requirements and tests is the regression safety net:
 - Every `implemented` requirement must have at least one test tagged with its ID
 - When a test is renamed or deleted, the tag moves with it (or disappears), so
   the link cannot silently rot
-- `check-coverage.sh` catches `implemented` requirements that have drifted to
-  zero test coverage
+- `scripts/check-requirements-coverage.sh` catches `implemented` requirements
+  that have drifted to zero test coverage
+
+## Things that do NOT belong here
+
+- Literal config keys, CLI flag names, or schema fragments - describe the
+  behaviour and let the man page (`man/bear.1.md`) name the key.
+- Step-by-step implementation guides, algorithm walkthroughs, error-handling
+  tables - those go in code comments next to the implementation.
+- Design rationale, trade-offs, or rejected alternatives - those go in
+  [`../rationale/`](../rationale/); link them from a `## Rationale` section.
+- Bug reports or to-dos - those belong in the issue tracker.
+
+A requirement captures **what the software must do**, not how it is built, not
+why we built it that way, and not what we wish it did some day.

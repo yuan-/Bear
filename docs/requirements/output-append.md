@@ -27,29 +27,6 @@ entries with an existing `compile_commands.json` instead of overwriting it.
 - The combined output (existing + new) passes through the rest of the output
   pipeline (duplicate filtering, source filtering, atomic write)
 
-## Implementation details
-
-The `--append` flag is available both in the `semantic` subcommand and in
-the combined mode (`bear --append -- <build>`).
-
-When append mode is active, Bear reads the existing compilation database
-before writing the new one. The existing entries are chained before the new
-entries. This ordering matters: the duplicate filter (`output-duplicate-detection`) keeps the
-first occurrence, so when a file is recompiled with identical flags the
-original entry from the existing database is preserved.
-
-The append step runs after entry conversion and before the atomic write
-(`output-atomic-write`). The duplicate filter (`output-duplicate-detection`) and source filter run after
-the atomic write stage in the pipeline.
-
-Reading errors are handled at two levels:
-- File-open failures (missing permissions, IO errors) propagate as hard
-  errors. Bear does not write output in this case.
-- Parse-level failures (malformed JSON entries) are handled per-entry: each
-  invalid entry is skipped with a warning, and valid entries are preserved.
-  For a wholly corrupted (non-JSON) file, the parser may yield zero entries
-  and zero warnings -- the user receives no visible warning in this case.
-
 ## Non-functional constraints
 
 - Must not corrupt the output file if Bear is interrupted during the read

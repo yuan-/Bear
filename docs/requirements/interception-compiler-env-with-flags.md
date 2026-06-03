@@ -67,42 +67,6 @@ compilation database ended up missing entries.
   warn-and-skip behavior as before this feature; log message text
   differs).
 
-## Implementation details
-
-### Parsing helper
-
-A private `parse_program_env_value(value: &str) -> Option<(String,
-Vec<String>)>` lives next to `create_as_wrapper`. It calls
-`str::split_whitespace` and returns the first token plus the rest;
-empty input yields `None`. No shell parser is involved.
-
-`resolve_program_path` is not touched. It already owns the
-masquerade-wrapper contract (`interception-wrapper-recursion`);
-widening its signature to return flags would expand the blast radius
-for no gain. The call site does the split and passes only the program
-token in.
-
-### Override reconstruction
-
-- No flags -> `wrapper_path.to_string_lossy()`.
-- With flags -> `"<wrapper_path> <flag1> <flag2> ..."` (single-space
-  join, no quoting).
-
-Shell quoting is deliberately not introduced on the output side. `$CC`
-expansion in a shell script does not re-apply quote removal on the
-expanded text, so any quoting Bear added would leak literal quotes into
-argv. Make recipes handed to `sh -c` would re-interpret the added
-quoting as a new layer. Space-joining matches what both paths expect;
-if that is not enough for a given flag, it belongs in `CFLAGS`.
-
-### Files changed
-
-- `bear/src/intercept/environment.rs`: new `parse_program_env_value`
-  helper and rewritten env-var loop in `create_as_wrapper`.
-- `man/bear.1.md` (and regenerated `bear.1`): TROUBLESHOOTING paragraph
-  pointing users at `CFLAGS` for anything beyond whitespace-separated
-  tokens.
-
 ## Non-functional constraints
 
 - No shell parser or subprocess is involved.

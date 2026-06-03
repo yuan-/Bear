@@ -5,6 +5,13 @@
 //! This module provides both the duplicate detection logic and the pipeline writer
 //! that uses it. The filter can be configured to use different fields of the
 //! compilation database entries to determine if they are duplicates.
+//!
+//! Detection compares 64-bit hashes (`DefaultHasher`/SipHash) of the configured
+//! fields rather than the entries themselves, so memory grows O(n) in unique
+//! entries while the stream is processed one entry at a time. A hash collision
+//! would silently drop a non-duplicate entry (a false positive); with a 64-bit
+//! hash this is negligible for typical databases, and trading that vanishing
+//! risk for the simplicity and speed of hashing is intentional.
 
 use crate::config;
 use crate::output::clang::Entry;

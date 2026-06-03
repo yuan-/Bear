@@ -23,42 +23,6 @@ a truncated or half-written file.
 - If the inner writer fails, the temporary file may also be left behind
   (empty or partial)
 
-## Implementation details
-
-Bear uses the classic temp-file-plus-rename pattern. The temporary file
-path is derived from the output path by replacing the extension with `.tmp`
-(e.g. `compile_commands.json` becomes `compile_commands.tmp`). This is
-deterministic rather than random, which simplifies cleanup but means two
-concurrent Bear processes targeting the same output file would race. This
-trade-off is intentional: concurrent writes to the same compilation database
-are not supported.
-
-The safety guarantee does not depend on signal handling. Because the rename
-has not yet occurred during serialization, the original file is not modified
-regardless of how the process terminates -- including `SIGKILL`, which
-cannot be caught.
-
-### Platform constraints
-
-- **POSIX**: `rename(2)` is atomic when source and destination are on the
-  same filesystem. Co-locating the temp file with the output guarantees
-  this.
-- **Windows**: `MoveFileEx` with `MOVEFILE_REPLACE_EXISTING` provides
-  similar guarantees but is not fully atomic under all conditions. Bear
-  accepts this platform limitation.
-
-### Error paths
-
-On inner-writer failure (serialization error, disk full), the error
-propagates unchanged and references the temp file path. On rename failure,
-the error is mapped to reference the final file path. This distinction
-helps diagnose whether the problem is serialization or filesystem
-permissions.
-
-The atomic write step runs after the append step (`output-append`). The
-filtering and serialization stages run inside the atomic writer -- they
-write to the temp file, and the atomic writer renames it on success.
-
 ## Non-functional constraints
 
 - The temp file name is deterministic, so concurrent Bear runs targeting

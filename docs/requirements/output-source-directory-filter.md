@@ -33,59 +33,6 @@ in the output based on the source file path.
 - Empty rule paths are rejected during configuration validation
 - Filtered entries are counted in the pipeline statistics
 
-## Implementation details
-
-### Configuration
-
-Source filtering is controlled via the `sources.directories` section of the
-configuration file:
-
-```yaml
-sources:
-  directories:
-    - path: src
-      action: include
-    - path: src/test
-      action: exclude
-    - path: src/test/integration
-      action: include
-```
-
-With this configuration:
-- `src/main.c` is included (matches rule 1)
-- `src/test/unit.c` is excluded (matches rules 1 and 2; rule 2 wins)
-- `src/test/integration/api.c` is included (matches rules 1, 2, and 3;
-  rule 3 wins)
-- `lib/external.c` is included (no rule matches; default is include)
-
-A common pattern is to use `.` as a catch-all rule to include or exclude
-everything under the current directory, then add more specific rules after
-it.
-
-### Design decisions
-
-**Last-match-wins semantics**: The original feature request (GitHub issue
-#261) discussed whether include or exclude should take precedence. The
-implementation chose order-based evaluation where the last matching rule
-wins. This gives users full control over precedence by ordering their rules
-appropriately. It is more flexible than a fixed "exclude always wins"
-policy because users can create exceptions to exceptions (as shown in the
-example above).
-
-**No path normalization**: Rule paths are matched literally against entry
-file paths. For matching to work correctly, rule paths should use the same
-format as configured in `format.paths.file` (`output-path-format`). If files are
-formatted as absolute paths but rules use relative paths (or vice versa),
-matches will not work as expected. This consistency is the user's
-responsibility.
-
-**Platform path separators**: Path matching uses `Path::starts_with()`,
-which is aware of platform-specific separators (`/` on Unix, `\` on
-Windows). Rules must use the appropriate separator for the platform.
-
-The source filter runs before the duplicate filter (`output-duplicate-detection`). This means
-entries excluded by source rules are never seen by the duplicate filter.
-
 ## Non-functional constraints
 
 - Filtering is a streaming operation with O(r) cost per entry, where r is
@@ -164,3 +111,8 @@ Given a rule with an empty path:
   same location. Users who need symlink-aware filtering should use the
   `canonical` path format (`output-path-format`) so that file paths are resolved
   before matching.
+
+## Rationale
+
+- [Last matching rule wins](../rationale/source-filter-last-match-wins.md) -
+  why precedence is order-based rather than a fixed "exclude wins" policy.

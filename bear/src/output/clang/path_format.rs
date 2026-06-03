@@ -10,9 +10,29 @@
 //! directory. The `file`, `output` and `arguments` attributes are either absolute or
 //! relative to the `directory` attribute.
 //!
-//! The `arguments` attribute contains the compiler flags, where some flags are using
-//! file paths. In the current implementation, the `arguments` attribute is not
-//! transformed.
+//! Four resolution strategies are available, selected per field via the
+//! `format.paths` configuration (documented in `man/bear.1.md`):
+//!
+//! - `as-is`: return the path unchanged (no-op; the default).
+//! - `absolute`: join with the base directory when relative, then normalize
+//!   via `std::path::absolute()`. Does not require the path to exist on disk.
+//! - `relative`: compute the path relative to the base directory. Returns
+//!   `PathsCannotBeRelative` when the two paths share no common root (e.g.
+//!   files on different Windows drive letters).
+//! - `canonical`: resolve symlinks and `.`/`..` via `Path::canonicalize()`,
+//!   which requires every path component to exist on disk, then strip the
+//!   Windows extended-length prefix (`\\?\`) that clangd rejects (issue #683).
+//!
+//! The `directory` field is formatted using itself as the base; the `file` and
+//! `output` fields are resolved against the already-formatted directory. A
+//! `directory` that fails to format drops the whole entry; a `file` or `output`
+//! that fails falls back to its original path (see `CommandConverter` in
+//! `converter.rs`).
+//!
+//! The `arguments` attribute carries compiler flags, some of which embed file
+//! paths. These are intentionally left untransformed: rewriting them would
+//! require a flag-aware path rewriter for every compiler, which is fragile and
+//! out of scope.
 
 use crate::config::PathResolver;
 use std::io;

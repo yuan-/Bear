@@ -129,21 +129,6 @@ Related issues: #240, #678, #679, #671.
 - The `output` field is omitted by default and included when
   `format.entries.include_output_field` is enabled
 
-## Implementation details
-
-Bear defaults to the `arguments` array format because the specification
-recommends it and because shell (un)escaping is a known source of errors.
-The `command` string format is available for consumers that require it.
-
-The format selection is controlled via configuration:
-
-```yaml
-format:
-  entries:
-    use_array_format: true        # true = arguments, false = command
-    include_output_field: false   # include the output field
-```
-
 ## Validation failure handling
 
 Entry validation runs as a distinct stage in the output pipeline, immediately
