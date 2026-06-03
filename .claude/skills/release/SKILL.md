@@ -1,10 +1,20 @@
-# Releasing Bear
+---
+name: release
+description: Cut a release of Bear -- verify metadata, run the full check set, fast-forward to master, tag, and publish a GitHub release plus discussion announcement. Use when the user asks to release, cut a version, tag a release, or ship a new Bear version.
+---
 
-This document captures the release process. The goal is that running through it
+# Release Bear
+
+This skill captures the release process. The goal is that running through it
 mechanically produces a tagged, published release with consistent metadata.
 
 Replace `X.Y.Z` with the version being released (e.g. `4.1.2`). The release
 branch is `X.Y.Z-rc`; the destination branch is `master`.
+
+Pushing the tag and publishing the GitHub release are outward-facing and hard
+to undo. Drive the steps below and confirm with the user before any
+outward-facing action (the fast-forward to master, pushing the tag, creating
+the release, posting the announcement).
 
 ## 1. Preconditions
 

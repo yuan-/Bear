@@ -1,6 +1,7 @@
 .idea/
 .vscode/
-.claude/
+.claude/*
+!.claude/skills/
 .zed/
 
 cmake-build*/
