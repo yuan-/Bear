@@ -90,16 +90,13 @@ The workspace builds in three layers before linking the user-facing binaries:
 
 ## Decision protocol
 
-For architectural changes or new features:
+For a new feature or architectural change: write a requirement first (see
+`docs/requirements/CLAUDE.md`), present a short decision log (approach,
+alternatives considered, trade-offs), and wait for approval before
+implementing. Then add integration tests that cite the requirement.
 
-1. Check `docs/requirements/` for existing requirement specs
-2. Write a requirement spec if one does not exist (see `docs/requirements/CLAUDE.md`)
-3. Provide a Decision Log before writing code:
-   - Proposed approach
-   - Alternatives considered
-   - Trade-offs (performance vs simplicity)
-4. Await "GO" before implementation
-5. Write integration tests that reference the requirement
+A bug fix that does not change a contract skips straight to test + fix,
+citing the governing requirement if one exists.
 
 ## Code guidelines
 

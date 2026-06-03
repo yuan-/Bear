@@ -152,16 +152,6 @@ This allows features to mature before code is written. The status field tracks
 how far along the feature is. Multiple conversations can incrementally refine
 a requirement before it reaches `accepted`.
 
-## Regression protection
-
-The link between requirements and tests is the regression safety net:
-
-- Every `implemented` requirement must have at least one test tagged with its ID
-- When a test is renamed or deleted, the tag moves with it (or disappears), so
-  the link cannot silently rot
-- `scripts/check-requirements-coverage.sh` catches `implemented` requirements
-  that have drifted to zero test coverage
-
 ## Things that do NOT belong here
 
 - Literal config keys, CLI flag names, or schema fragments - describe the

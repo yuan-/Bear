@@ -79,11 +79,10 @@ locally carry full diagnostic context without a re-run.
 ## Regression protection role
 
 Integration tests are the primary regression protection mechanism for Bear.
-
-- Every implemented requirement should have at least one integration test
-- Tests should reference the requirement they protect (via naming or comments)
-- When a bug is fixed, add a test that reproduces the original failure
-- Platform-specific behavior needs platform-specific tests with `#[cfg(...)]`
+When a bug is fixed, add a test that reproduces the original failure; give
+platform-specific behaviour platform-specific tests with `#[cfg(...)]`. See
+`docs/requirements/CLAUDE.md` for the requirement-to-test linkage and the
+coverage model.
 
 ## Organization
 

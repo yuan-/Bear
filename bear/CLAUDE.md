@@ -44,5 +44,3 @@ Generated from `clap` definitions at build time:
 ```sh
 target/release/generate-completions target/release/completions
 ```
-
-Man pages should also be generated from `clap` via `clap_mangen` (not yet implemented).
