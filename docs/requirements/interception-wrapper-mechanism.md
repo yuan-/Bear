@@ -140,8 +140,8 @@ Given a successful build:
   interception mode using `LD_PRELOAD`).
 - Related requirement: `interception-wrapper-recursion` (ccache
   recursion prevention in wrapper mode).
-- The wrapper binary is a separate Rust binary (`bear/src/bin/wrapper.rs`)
-  that is built alongside the main `bear` binary.
+- The wrapper binary is a separate Rust binary (`crates/bear-wrapper/src/main.rs`)
+  that is built alongside the `bear-driver` binary.
 - GitHub issues #686, #681 cover Windows/MSYS2 wrapper mode improvements.
 - GitHub issue #609 describes user confusion about when to use wrapper
   vs. preload mode. The default selection (wrapper on macOS/Windows,

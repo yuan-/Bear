@@ -45,5 +45,5 @@ proper is dependency-free.
 
 It detects host capabilities, not consumer behavior. The list of
 symbols that the preload C shim actually exports lives in
-`intercept-preload/build.rs::INTERCEPT_FAMILY`; the source of truth
-is `intercept-preload/src/c/shim.c`.
+`crates/intercept-preload/build.rs::INTERCEPT_FAMILY`; the source of
+truth is `crates/intercept-preload/src/c/shim.c`.

@@ -99,6 +99,6 @@ within the same major-version line:
   guarantees across major versions; those are explicitly allowed to
   break.
 - The current event schema is defined by the Rust types in
-  `bear/src/intercept/`. Before promoting status to `accepted`, the
+  `crates/intercept/src/`. Before promoting status to `accepted`, the
   field list and stable-field subset must be enumerated explicitly in
   this requirement (currently a forward reference).

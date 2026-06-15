@@ -138,7 +138,7 @@ PATH: putting ccache first on the job PATH would inflate event
 counts for every preload-mode test that asserts an exact number of
 compiler invocations.
 
-At build-time, `integration-tests/build.rs` scans well-known
+At build-time, `tests/integration/build.rs` scans well-known
 locations (`/usr/lib/ccache`, `/usr/lib64/ccache`,
 `/usr/libexec/ccache`) for a ccache masquerade directory and, if
 found, exposes it via the `CCACHE_MASQUERADE_DIR` env var and sets

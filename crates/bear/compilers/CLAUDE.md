@@ -6,16 +6,16 @@ result values, inheritance, environment variables).
 ## Rules for modifying YAML files
 
 - Every YAML file maps to one compiler or compiler family
-- `bear-codegen` reads these at build time (via `bear/build.rs`) and generates static Rust arrays
+- `compilers-codegen` reads these at build time (via `crates/bear/build.rs`) and generates static Rust arrays
 - After any edit: `cargo build && cargo test` to validate
 
 ## Adding a new compiler
 
 1. Create `mycompiler.yaml` in this directory
 2. Add `type:`, `recognize:`, `flags:` entries (optionally `extends:`, `ignore_when:`, `environment:`)
-3. Add a `TableConfig` entry in `bear-codegen/src/tables.rs`
-4. Add a `CompilerType` variant in `bear/src/config/types.rs` and a mapping in `bear/src/semantic/interpreters/compilers/compiler_recognition.rs::parse_compiler_type`
-5. Add a constructor in `flag_based.rs` and register it in `CompilerInterpreter::new_with_config` (`bear/src/semantic/interpreters/compilers/mod.rs`)
+3. Add a `TableConfig` entry in `build-support/compilers-codegen/src/tables.rs`
+4. Add a `CompilerType` variant in `crates/bear/src/config/types.rs` and a mapping in `crates/bear/src/semantic/interpreters/compilers/compiler_recognition.rs::parse_compiler_type`
+5. Add a constructor in `flag_based.rs` and register it in `CompilerInterpreter::new_with_config` (`crates/bear/src/semantic/interpreters/compilers/mod.rs`)
 6. Run `cargo build && cargo test`
 
 ## Adding a new flag to an existing compiler
@@ -35,4 +35,4 @@ result values, inheritance, environment variables).
 ## Regression protection
 
 Compiler interpreter changes must be covered by integration tests.
-See `integration-tests/CLAUDE.md` for how to write them.
+See `tests/integration/CLAUDE.md` for how to write them.

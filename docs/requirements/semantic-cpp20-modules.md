@@ -50,7 +50,7 @@ filters the invocation out.
 - The recognition layer must remain extension-driven for the source check.
   Probe-based detection of module-interface units is out of scope.
 - Adding flag entries must not perturb the codegen snapshot tests in
-  `bear-codegen`. Regeneration via `cargo build` is expected.
+  `compilers-codegen`. Regeneration via `cargo build` is expected.
 
 ## Testing
 
@@ -86,9 +86,9 @@ Given a GCC build using `-fmodules-ts`:
   dropped from the database. The issue was bulk-closed in 2026 presuming
   the rewrite addressed it; it did not.
 - Source-extension list lives at
-  `bear/src/semantic/interpreters/matchers/source.rs`.
-- Flag tables live in `bear/interpreters/clang.yaml` and
-  `bear/interpreters/gcc.yaml`. `clang.yaml` already `extends: gcc`, so
+  `crates/bear/src/semantic/interpreters/matchers/source.rs`.
+- Flag tables live in `crates/bear/compilers/clang.yaml` and
+  `crates/bear/compilers/gcc.yaml`. `clang.yaml` already `extends: gcc`, so
   module flags common to both should land in `gcc.yaml` and Clang-only
   flags in `clang.yaml`.
 - Out of scope: module dependency-graph awareness, BMI cache discovery,

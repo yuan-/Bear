@@ -4,7 +4,7 @@ This directory contains YAML files that define how Bear recognizes compiler
 executables, categorizes their command-line flags, and filters internal
 invocations. Each file corresponds to one compiler (or compiler family).
 
-At build time, `bear/build.rs` reads these files and generates static Rust
+At build time, `crates/bear/build.rs` reads these files and generates static Rust
 arrays for flag tables, ignore filters, and recognition patterns. The generated
 code is included in the interpreter and recognition modules via `include!()`.
 
@@ -210,12 +210,12 @@ extend GCC and will have an empty environment table.
 
 1. Create a new YAML file in this directory (e.g., `mycompiler.yaml`)
 2. Add `type:`, `recognize:`, `flags:` entries and optionally `extends:`, `ignore_when:`, `environment:`
-3. Add a `TableConfig` entry in `bear-codegen/src/tables.rs`
-4. Add a `CompilerType` variant in `bear/src/config/types.rs` and a mapping in
-   `bear/src/semantic/interpreters/compilers/compiler_recognition.rs::parse_compiler_type`
+3. Add a `TableConfig` entry in `build-support/compilers-codegen/src/tables.rs`
+4. Add a `CompilerType` variant in `crates/bear/src/config/types.rs` and a mapping in
+   `crates/bear/src/semantic/interpreters/compilers/compiler_recognition.rs::parse_compiler_type`
 5. Add a constructor in `flag_based.rs` and register it in
    `CompilerInterpreter::new_with_config`
-   (`bear/src/semantic/interpreters/compilers/mod.rs`)
+   (`crates/bear/src/semantic/interpreters/compilers/mod.rs`)
 6. Run `cargo build && cargo test`
 
 ## Adding a new flag

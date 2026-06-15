@@ -53,7 +53,7 @@ Rules:
 To find tests for a requirement:
 
 ```sh
-grep -rn "Requirements:.*<requirement-id>" bear/ intercept-preload/ integration-tests/
+grep -rn "Requirements:.*<requirement-id>" crates/ tests/
 ```
 
 See `docs/requirements/CLAUDE.md` for the coverage-check script that verifies every

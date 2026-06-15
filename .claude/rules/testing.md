@@ -9,9 +9,9 @@ Where tests live and how to write them.
 
 - **Placement**: unit tests live next to the code they exercise
   (`#[cfg(test)] mod tests` at the bottom of the `.rs` file); behavioural
-  contracts get integration tests under `integration-tests/`, each tagged
+  contracts get integration tests under `tests/integration/`, each tagged
   `// Requirements: <id>` (see `docs/requirements/CLAUDE.md` for the
-  linkage rules and `integration-tests/CLAUDE.md` for the test harness).
+  linkage rules and `tests/integration/CLAUDE.md` for the test harness).
 
 ## Style
 

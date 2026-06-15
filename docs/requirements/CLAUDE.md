@@ -100,20 +100,21 @@ Rules:
 - Place the tag on the line(s) directly above `#[test]` (or the test macro).
 - For a whole file covering a single requirement, use `//! Requirements: <id>`
   at the top of the file. Test-level tags override file-level tags.
-- Unit tests in `bear/` and `intercept-preload/` use the same convention.
+- Unit tests in `crates/` (e.g. `crates/bear/`, `crates/intercept-preload/`)
+  use the same convention.
 
 ## Reverse lookup
 
 To find every test that protects a requirement:
 
 ```sh
-grep -rn "Requirements:.*<requirement-id>" bear/ intercept-preload/ integration-tests/
+grep -rn "Requirements:.*<requirement-id>" crates/ tests/
 ```
 
 For example, to find tests for `output-append`:
 
 ```sh
-grep -rn "Requirements:.*output-append" bear/ intercept-preload/ integration-tests/
+grep -rn "Requirements:.*output-append" crates/ tests/
 ```
 
 ## Coverage check

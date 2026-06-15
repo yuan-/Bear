@@ -9,8 +9,6 @@ edition.workspace = true
 publish = false
 
 [dev-dependencies]
-bear = { path = "../../crates/bear" }
-intercept-preload = { path = "../../crates/intercept-preload" }
 tempfile.workspace = true
 anyhow.workspace = true
 assert_cmd.workspace = true

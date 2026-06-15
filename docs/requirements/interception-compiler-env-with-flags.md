@@ -44,7 +44,7 @@ mode is built for on Windows.
 
 ## Background
 
-`resolve_program_path` in `bear/src/intercept/environment.rs` used to
+`resolve_program_path` in `crates/bear/src/environment.rs` used to
 pass the entire env var value to `PathBuf::from()` / `which::which_in()`.
 Both treat the whole string as a single filename, so any value with
 trailing flags failed to resolve and the env var was skipped with a
@@ -75,7 +75,7 @@ compilation database ended up missing entries.
 
 ## Testing
 
-### Unit tests (in `bear/src/intercept/environment.rs`)
+### Unit tests (in `crates/bear/src/environment.rs`)
 
 Given a wrapper-mode setup with a fake compiler on PATH:
 
@@ -115,7 +115,7 @@ Scope):
 > then the wrapper is registered for `fake-cc.exe`,
 > and the override for `CC` still contains `-DBEAR_TEST=1`.
 
-### Integration test (`integration-tests/tests/cases/intercept.rs`)
+### Integration test (`tests/integration/tests/cases/intercept.rs`)
 
 Given a C source file and a build script that runs `$CC -c test.c`:
 

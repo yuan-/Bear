@@ -48,7 +48,7 @@ Then verify the release metadata:
 | Item | Where | Check |
 |---|---|---|
 | Workspace version | `Cargo.toml` (`[workspace.package]`) | matches `X.Y.Z` |
-| Lockfile in sync | `Cargo.lock` | `bear`, `bear-codegen`, etc. show `X.Y.Z`; clean `cargo build` does not modify it |
+| Lockfile in sync | `Cargo.lock` | `bear`, `compilers-codegen`, etc. show `X.Y.Z`; clean `cargo build` does not modify it |
 | Man page date | `man/bear.1.md` line 3 | set to today (e.g. `April 25, 2026`) |
 | Man page generated | `man/bear.1` | regenerated from `.md` (see below) |
 

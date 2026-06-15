@@ -13,7 +13,8 @@ Conventions for Rust code across every workspace crate. The per-crate
   `// SPDX-License-Identifier: GPL-3.0-or-later` as its first line, before
   any `//!` module doc. Bear is GPL-3.0-or-later (see `COPYING`).
 - **Error handling**: domain errors are `thiserror` enums in the library
-  code; the binaries (`bear/src/bin/`) use `anyhow::Result` with
+  code; the binaries (`crates/bear-driver/src/`, `crates/bear-wrapper/src/`)
+  use `anyhow::Result` with
   `.context(...)` at the boundary and turn any `Err` into a non-zero exit.
 - **Panicking macros**: `unwrap()` is for test code only. In production use
   `.expect("short reason")` only when a prior-stage invariant makes the
@@ -22,8 +23,8 @@ Conventions for Rust code across every workspace crate. The per-crate
   for unambiguous programmer bugs (violated API contract, malformed
   generated data), with a one-line comment stating the invariant.
 - **Module structure**: modules are organised into directories by
-  responsibility (`output/`, `intercept/`, `semantic/`, `config/`,
-  `modes/`), plus a few top-level modules. Extend an existing module before
+  responsibility (`output/`, `semantic/`, `config/`, `modes/`), plus a few
+  top-level modules. Extend an existing module before
   adding one; keep each module's public surface as small as the crate needs.
 - **Abstraction**: introduce a trait only for a real polymorphism seam with
   a second implementation in sight. No speculative abstractions.
