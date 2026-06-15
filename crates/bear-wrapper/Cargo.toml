@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+[package]
+name = "bear-wrapper"
+description = "Compiler wrapper binary for Bear that reports intercepted executions."
+version.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+license.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "bear-wrapper"
+path = "src/main.rs"
+
+[dependencies]
+intercept = { path = "../intercept" }
+anyhow.workspace = true
+log.workspace = true
+env_logger.workspace = true

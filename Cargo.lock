@@ -98,11 +98,9 @@ checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 name = "bear"
 version = "4.1.5"
 dependencies = [
- "anyhow",
  "clap",
  "compilers-codegen",
  "crossbeam-channel",
- "env_logger",
  "intercept",
  "libc",
  "log",
@@ -112,7 +110,6 @@ dependencies = [
  "serde-saphyr",
  "serde_json",
  "shell-words",
- "signal-hook",
  "tempfile",
  "thiserror",
  "which",
@@ -124,6 +121,27 @@ version = "4.1.5"
 dependencies = [
  "bear",
  "clap_complete",
+]
+
+[[package]]
+name = "bear-driver"
+version = "4.1.5"
+dependencies = [
+ "anyhow",
+ "bear",
+ "env_logger",
+ "intercept",
+ "log",
+]
+
+[[package]]
+name = "bear-wrapper"
+version = "4.1.5"
+dependencies = [
+ "anyhow",
+ "env_logger",
+ "intercept",
+ "log",
 ]
 
 [[package]]
