@@ -3,7 +3,7 @@ source: bear-codegen/tests/snapshots.rs
 assertion_line: 62
 expression: "generate_flag_file(\"msvc\")"
 ---
-// Generated from interpreters/msvc.yaml -- DO NOT EDIT
+// Generated from compilers/msvc.yaml -- DO NOT EDIT
 static MSVC_FLAGS: [FlagRule; 133] = [
     FlagRule::new(FlagPattern::Exactly("/external:anglebrackets", 0), ArgumentKind::Other(PassEffect::None)),
     FlagRule::new(FlagPattern::Exactly("/Qfast_transcendentals", 0), ArgumentKind::Other(PassEffect::Configures(CompilerPass::Compiling))),

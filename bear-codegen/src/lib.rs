@@ -73,7 +73,7 @@ impl ResolvedTable {
 
     fn generate_flag_array(&self) -> Result<String> {
         let mut out = String::new();
-        out.push_str(&format!("// Generated from interpreters/{} -- DO NOT EDIT\n", self.config.yaml_file));
+        out.push_str(&format!("// Generated from compilers/{} -- DO NOT EDIT\n", self.config.yaml_file));
         out.push_str(&format!("static {}: [FlagRule; {}] = [\n", self.config.static_name, self.flags.len()));
         for entry in &self.flags {
             let pattern_rust = pattern_to_rust(&entry.match_.pattern, entry.match_.count);
@@ -188,10 +188,10 @@ fn write_output(out_dir: &Path, filename: &str, content: String) -> Result<()> {
 
 /// Path to the YAML flag definitions in the workspace.
 pub fn flags_dir() -> std::path::PathBuf {
-    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("bear/interpreters")
+    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("bear/compilers")
 }
 
-/// Load all YAML flag tables from the workspace interpreters directory.
+/// Load all YAML flag tables from the workspace compilers directory.
 pub fn load_tables() -> Result<HashMap<String, FlagTable>> {
     let flags_dir = flags_dir();
     let mut raw_tables = HashMap::new();

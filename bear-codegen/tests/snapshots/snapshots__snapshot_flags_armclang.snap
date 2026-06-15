@@ -2,7 +2,7 @@
 source: bear-codegen/tests/snapshots.rs
 expression: "generate_flag_file(\"armclang\")"
 ---
-// Generated from interpreters/armclang.yaml -- DO NOT EDIT
+// Generated from compilers/armclang.yaml -- DO NOT EDIT
 static ARMCLANG_FLAGS: [FlagRule; 205] = [
     FlagRule::new(FlagPattern::Exactly("--no_depend_system_headers", 0), ArgumentKind::Other(PassEffect::Configures(CompilerPass::Compiling))),
     FlagRule::new(FlagPattern::Exactly("--depend_system_headers", 0), ArgumentKind::Other(PassEffect::Configures(CompilerPass::Compiling))),

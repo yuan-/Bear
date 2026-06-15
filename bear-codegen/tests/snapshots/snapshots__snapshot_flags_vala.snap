@@ -2,7 +2,7 @@
 source: bear-codegen/tests/snapshots.rs
 expression: "generate_flag_file(\"vala\")"
 ---
-// Generated from interpreters/vala.yaml -- DO NOT EDIT
+// Generated from compilers/vala.yaml -- DO NOT EDIT
 static VALA_FLAGS: [FlagRule; 42] = [
     FlagRule::new(FlagPattern::ExactlyWithEqOrSep("--internal-header"), ArgumentKind::Other(PassEffect::None)),
     FlagRule::new(FlagPattern::ExactlyWithEqOrSep("--shared-library"), ArgumentKind::Other(PassEffect::None)),

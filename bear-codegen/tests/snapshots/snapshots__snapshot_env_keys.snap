@@ -2,7 +2,7 @@
 source: bear-codegen/tests/snapshots.rs
 expression: generate_env_keys(&raw_tables)
 ---
-// Generated from interpreters/*.yaml -- DO NOT EDIT
+// Generated from compilers/*.yaml -- DO NOT EDIT
 static COMPILER_ENV_KEYS: [&str; 10] = [
     "ARMCOMPILER6_CLANGOPT",
     "CL",

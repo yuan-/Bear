@@ -2,7 +2,7 @@
 source: bear-codegen/tests/snapshots.rs
 expression: "generate_flag_file(\"intel_fortran\")"
 ---
-// Generated from interpreters/intel_fortran.yaml -- DO NOT EDIT
+// Generated from compilers/intel_fortran.yaml -- DO NOT EDIT
 static INTEL_FORTRAN_FLAGS: [FlagRule; 71] = [
     FlagRule::new(FlagPattern::Exactly("-debug-parameters", 1), ArgumentKind::Other(PassEffect::InfoAndExit)),
     FlagRule::new(FlagPattern::Exactly("-nogen-interfaces", 0), ArgumentKind::Other(PassEffect::None)),

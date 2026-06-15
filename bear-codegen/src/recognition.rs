@@ -16,7 +16,7 @@ use crate::yaml_types::FlagTable;
 /// to the right compiler type (where the interpreter will then ignore them).
 pub fn generate_recognition_patterns(raw_tables: &HashMap<String, FlagTable>) -> String {
     let mut out = String::new();
-    out.push_str("// Generated from interpreters/*.yaml -- DO NOT EDIT\n");
+    out.push_str("// Generated from compilers/*.yaml -- DO NOT EDIT\n");
     out.push_str("pub static RECOGNITION_PATTERNS: &[(&str, &[&str], bool, bool)] = &[\n");
 
     // Collect entries in a deterministic order (by TABLES order)

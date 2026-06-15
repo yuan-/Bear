@@ -2,7 +2,7 @@
 source: bear-codegen/tests/snapshots.rs
 expression: "generate_flag_file(\"intel_cc\")"
 ---
-// Generated from interpreters/intel_cc.yaml -- DO NOT EDIT
+// Generated from compilers/intel_cc.yaml -- DO NOT EDIT
 static INTEL_CC_FLAGS: [FlagRule; 260] = [
     FlagRule::new(FlagPattern::Exactly("-qopt-multiple-gather-scatter-by-shuffles", 0), ArgumentKind::Other(PassEffect::Configures(CompilerPass::Compiling))),
     FlagRule::new(FlagPattern::Exactly("-qopt-assume-safe-padding", 0), ArgumentKind::Other(PassEffect::Configures(CompilerPass::Compiling))),

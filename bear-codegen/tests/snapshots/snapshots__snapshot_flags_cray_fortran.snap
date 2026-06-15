@@ -2,7 +2,7 @@
 source: bear-codegen/tests/snapshots.rs
 expression: "generate_flag_file(\"cray_fortran\")"
 ---
-// Generated from interpreters/cray_fortran.yaml -- DO NOT EDIT
+// Generated from compilers/cray_fortran.yaml -- DO NOT EDIT
 static CRAY_FORTRAN_FLAGS: [FlagRule; 65] = [
     FlagRule::new(FlagPattern::Exactly("--no-custom-ld-script", 0), ArgumentKind::Other(PassEffect::Configures(CompilerPass::Linking))),
     FlagRule::new(FlagPattern::Exactly("-no-add-rpath-shared", 0), ArgumentKind::Other(PassEffect::Configures(CompilerPass::Linking))),

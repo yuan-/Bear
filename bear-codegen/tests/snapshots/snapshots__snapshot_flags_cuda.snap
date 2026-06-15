@@ -2,7 +2,7 @@
 source: bear-codegen/tests/snapshots.rs
 expression: "generate_flag_file(\"cuda\")"
 ---
-// Generated from interpreters/cuda.yaml -- DO NOT EDIT
+// Generated from compilers/cuda.yaml -- DO NOT EDIT
 static CUDA_FLAGS: [FlagRule; 160] = [
     FlagRule::new(FlagPattern::ExactlyWithEqOrSep("--relocatable-device-code"), ArgumentKind::Other(PassEffect::Configures(CompilerPass::Compiling))),
     FlagRule::new(FlagPattern::Exactly("--expt-relaxed-constexpr", 0), ArgumentKind::Other(PassEffect::Configures(CompilerPass::Compiling))),

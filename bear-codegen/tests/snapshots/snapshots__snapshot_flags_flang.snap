@@ -2,7 +2,7 @@
 source: bear-codegen/tests/snapshots.rs
 expression: "generate_flag_file(\"flang\")"
 ---
-// Generated from interpreters/flang.yaml -- DO NOT EDIT
+// Generated from compilers/flang.yaml -- DO NOT EDIT
 static FLANG_FLAGS: [FlagRule; 128] = [
     FlagRule::new(FlagPattern::Exactly("-iwithprefixbefore", 1), ArgumentKind::Other(PassEffect::Configures(CompilerPass::Preprocessing))),
     FlagRule::new(FlagPattern::Exactly("-fdisable-real-10", 0), ArgumentKind::Other(PassEffect::Configures(CompilerPass::Compiling))),

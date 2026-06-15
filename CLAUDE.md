@@ -40,7 +40,7 @@ These files contain rules, context, and constraints specific to that area.
 | When you are about to... | Read first |
 |---|---|
 | Modify CLI arguments or output format | `bear/CLAUDE.md` |
-| Edit or add compiler interpreter YAML | `bear/interpreters/CLAUDE.md` |
+| Edit or add compiler interpreter YAML | `bear/compilers/CLAUDE.md` |
 | Edit the YAML-to-Rust code generator | `bear-codegen/CLAUDE.md` |
 | Add or change a host capability probe | `platform-checks/CLAUDE.md` |
 | Touch the preload interception library | `intercept-preload/CLAUDE.md` |

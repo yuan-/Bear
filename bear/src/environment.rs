@@ -12,7 +12,7 @@ pub const KEY_OS__MACOS_FLAT_NAMESPACE: &str = "DYLD_FORCE_FLAT_NAMESPACE";
 // man page for `exec` (Linux system call)
 pub const KEY_OS__PATH: &str = "PATH";
 
-// Compiler-specific environment variable names, generated from interpreters/*.yaml.
+// Compiler-specific environment variable names, generated from compilers/*.yaml.
 include!(concat!(env!("OUT_DIR"), "/env_keys.rs"));
 
 // https://www.gnu.org/software/make/manual/html_node/Implicit-Variables.html

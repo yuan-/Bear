@@ -28,7 +28,7 @@ fn main() {
     println!("cargo:rustc-env=INTERCEPT_LIBDIR={}", intercept_libdir);
     println!("cargo:rerun-if-env-changed=INTERCEPT_LIBDIR");
 
-    let flags_dir = std::path::Path::new("interpreters");
+    let flags_dir = std::path::Path::new("compilers");
     let out_dir: std::path::PathBuf = std::env::var("OUT_DIR").unwrap().into();
     if let Err(e) = bear_codegen::generate(flags_dir, &out_dir) {
         eprintln!("error: flag codegen failed");

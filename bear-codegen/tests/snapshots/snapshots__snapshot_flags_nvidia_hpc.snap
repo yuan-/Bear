@@ -2,7 +2,7 @@
 source: bear-codegen/tests/snapshots.rs
 expression: "generate_flag_file(\"nvidia_hpc\")"
 ---
-// Generated from interpreters/nvidia_hpc.yaml -- DO NOT EDIT
+// Generated from compilers/nvidia_hpc.yaml -- DO NOT EDIT
 static NVIDIA_HPC_FLAGS: [FlagRule; 89] = [
     FlagRule::new(FlagPattern::Exactly("-Mnostack_arrays", 0), ArgumentKind::Other(PassEffect::Configures(CompilerPass::Compiling))),
     FlagRule::new(FlagPattern::Exactly("-Mnoautoinline", 0), ArgumentKind::Other(PassEffect::Configures(CompilerPass::Compiling))),

@@ -2,7 +2,7 @@
 source: bear-codegen/tests/snapshots.rs
 expression: generate_recognition_patterns(&raw_tables)
 ---
-// Generated from interpreters/*.yaml -- DO NOT EDIT
+// Generated from compilers/*.yaml -- DO NOT EDIT
 pub static RECOGNITION_PATTERNS: &[(&str, &[&str], bool, bool)] = &[
     ("gcc", &["gcc", "g++", "gfortran", "egfortran", "f95"], true, true),
     ("gcc", &["cc1", "cc1plus", "cc1obj", "cc1objplus", "f951", "collect2", "lto1"], false, false),

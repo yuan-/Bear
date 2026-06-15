@@ -12,12 +12,12 @@ This is the main crate. It contains the CLI driver, semantic analysis, and outpu
 | `src/output/` | Output generation (JSON compilation database, statistics) |
 | `src/semantic/` | Semantic analysis - compiler detection and flag parsing |
 | `src/config/` | Configuration loading, validation, types |
-| `interpreters/` | Compiler definition YAML files (see `interpreters/CLAUDE.md`) |
+| `compilers/` | Compiler definition YAML files (see `compilers/CLAUDE.md`) |
 
 ## Before modifying
 
 - **CLI arguments** (`src/args.rs`): uses `clap` derive macros. Update man page -- see `man/CLAUDE.md` for instructions.
-- **Compiler interpreters**: read `interpreters/CLAUDE.md` before editing YAML files.
+- **Compiler interpreters**: read `compilers/CLAUDE.md` before editing YAML files.
 - **Output format**: check existing integration tests in `integration-tests/` to avoid regressions.
 - **Configuration types** (`src/config/types.rs`): changes here affect YAML config parsing. Update validation in `src/config/validation.rs`.
 
@@ -29,7 +29,7 @@ This is the main crate. It contains the CLI driver, semantic analysis, and outpu
   and emits `cargo:rustc-env=` for `DRIVER_NAME`, `WRAPPER_NAME`,
   `PRELOAD_NAME`, `INTERCEPT_LIBDIR`. Consumed via `env!()` in
   `src/installation.rs` to resolve the runtime install layout.
-- Invokes `bear_codegen::generate` to read `interpreters/*.yaml`
+- Invokes `bear_codegen::generate` to read `compilers/*.yaml`
   and produce static Rust arrays into `OUT_DIR`.
 
 The generated code is included via `include!()` in the interpreter

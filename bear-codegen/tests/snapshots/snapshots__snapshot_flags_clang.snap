@@ -2,7 +2,7 @@
 source: bear-codegen/tests/snapshots.rs
 expression: "generate_flag_file(\"clang\")"
 ---
-// Generated from interpreters/clang.yaml -- DO NOT EDIT
+// Generated from compilers/clang.yaml -- DO NOT EDIT
 static CLANG_FLAGS: [FlagRule; 197] = [
     FlagRule::new(FlagPattern::Exactly("-iwithprefixbefore", 1), ArgumentKind::Other(PassEffect::Configures(CompilerPass::Preprocessing))),
     FlagRule::new(FlagPattern::Exactly("-allowable_client", 1), ArgumentKind::Other(PassEffect::Configures(CompilerPass::Linking))),
