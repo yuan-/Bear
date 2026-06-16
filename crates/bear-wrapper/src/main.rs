@@ -18,7 +18,7 @@
 use anyhow::{Context, Result};
 use intercept::Execution;
 use intercept::reporter::{Reporter, ReporterFactory};
-use intercept_supervisor::supervise::supervise_execution;
+use intercept_supervisor::supervise::{GroupPolicy, supervise_execution};
 use intercept_supervisor::wrapper::{CONFIG_FILENAME, WrapperConfig, WrapperConfigReader};
 use std::io::Write;
 
@@ -55,7 +55,7 @@ fn main() -> Result<()> {
     }
 
     // Execute the real executable with the same arguments
-    let exit_status = supervise_execution(real_execution)?;
+    let exit_status = supervise_execution(real_execution, GroupPolicy::Inherit)?;
     // Return the child process status code
     std::process::exit(exit_status.code().unwrap_or(1));
 }

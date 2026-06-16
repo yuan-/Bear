@@ -212,6 +212,174 @@ fn exit_code_when_compiler_is_interrupted_mid_compile() -> Result<()> {
     Ok(())
 }
 
+/// A build whose process tree includes a detached grandchild must be torn
+/// down whole: signaling Bear stops not just the direct child but the
+/// grandchild the build spawned. This proves process-group teardown end to
+/// end through the real driver, not just the killpg mechanism in isolation.
+// Requirements: interception-signal-forwarding
+#[test]
+#[cfg(target_family = "unix")]
+#[cfg(all(has_executable_shell, has_executable_sleep))]
+fn signal_tears_down_build_process_tree() -> Result<()> {
+    let env = TestEnvironment::new("signal_tears_down_build_tree")?;
+
+    let gpid_file = env.test_dir().join("grandchild.pid");
+    // The build forks a long-lived grandchild, records its pid, then blocks.
+    let script =
+        format!("{sleep} 60 & echo $! > {pid} ; {sleep} 60", sleep = SLEEP_PATH, pid = gpid_file.display());
+
+    let mut cmd = env.command_bear();
+    cmd.current_dir(env.test_dir())
+        .args(["--output", "compile_commands.json", "--", SHELL_PATH, "-c", &script])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    let mut child = cmd.spawn().expect("failed to spawn bear");
+
+    // `kill -0` probes liveness without sending a signal.
+    let is_alive = |pid: i32| {
+        std::process::Command::new("kill")
+            .args(["-0", &pid.to_string()])
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    };
+
+    // Wait for the build to start and record the grandchild pid.
+    let gpid = {
+        let deadline = Instant::now() + std::time::Duration::from_secs(2);
+        loop {
+            if let Ok(text) = std::fs::read_to_string(&gpid_file)
+                && let Ok(pid) = text.trim().parse::<i32>()
+            {
+                break pid;
+            }
+            assert!(Instant::now() < deadline, "build never recorded its grandchild pid");
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+    };
+    assert!(is_alive(gpid), "grandchild should be running before the signal");
+
+    // Send SIGTERM to Bear (forwarding path, unlike Child::kill()/SIGKILL).
+    let pid = child.id().to_string();
+    let kill_status = std::process::Command::new("kill")
+        .arg("-TERM")
+        .arg(&pid)
+        .status()
+        .expect("kill -TERM command failed to run");
+    assert!(kill_status.success(), "kill -TERM reported failure");
+
+    let status = child.wait().expect("failed to wait for bear");
+    assert!(!status.success(), "bear must report non-success after signal");
+
+    // The grandchild must be gone: process-group teardown reached it.
+    let deadline = Instant::now() + std::time::Duration::from_secs(2);
+    while is_alive(gpid) && Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    assert!(!is_alive(gpid), "grandchild survived -- only the direct child was reaped");
+
+    Ok(())
+}
+
+/// Block until the supervised build reports it is ready (it creates `path`),
+/// so the test signals Bear only once the build is actually running.
+#[cfg(all(target_family = "unix", has_executable_shell, has_executable_sleep))]
+fn wait_for_file(path: &std::path::Path) {
+    let deadline = Instant::now() + std::time::Duration::from_secs(5);
+    while !path.exists() {
+        assert!(Instant::now() < deadline, "build never created {}", path.display());
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+}
+
+/// Bear forwards the real signal (not SIGKILL) and grants a grace window, so
+/// a build that traps the signal runs its trap and Bear's exit code reflects
+/// whatever the build ultimately exited with.
+// Requirements: interception-signal-forwarding
+#[test]
+#[cfg(target_family = "unix")]
+#[cfg(all(has_executable_shell, has_executable_sleep))]
+fn signal_lets_a_trapping_build_run_its_trap() -> Result<()> {
+    let env = TestEnvironment::new("signal_trapping_build")?;
+
+    let marker = env.test_dir().join("trap.marker");
+    let ready = env.test_dir().join("ready");
+    // The build traps TERM, records that the trap ran, and exits 42.
+    let script = format!(
+        "trap 'echo caught > {marker} ; exit 42' TERM ; echo ready > {ready} ; {sleep} 60",
+        marker = marker.display(),
+        ready = ready.display(),
+        sleep = SLEEP_PATH,
+    );
+
+    let mut cmd = env.command_bear();
+    cmd.current_dir(env.test_dir())
+        .args(["--output", "compile_commands.json", "--", SHELL_PATH, "-c", &script])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    let mut child = cmd.spawn().expect("failed to spawn bear");
+
+    wait_for_file(&ready);
+
+    let pid = child.id().to_string();
+    let kill_status =
+        std::process::Command::new("kill").arg("-TERM").arg(&pid).status().expect("kill -TERM failed to run");
+    assert!(kill_status.success(), "kill -TERM reported failure");
+
+    let status = child.wait().expect("failed to wait for bear");
+
+    // The trap ran (real signal forwarded with grace, not an immediate
+    // SIGKILL) and Bear reflected the build's own exit code.
+    let caught = std::fs::read_to_string(&marker).unwrap_or_default();
+    assert_eq!(caught.trim(), "caught", "build's TERM trap did not run");
+    assert_eq!(status.code(), Some(42), "bear did not propagate the build's trap exit code");
+    Ok(())
+}
+
+/// A build that ignores the termination signal is still stopped: after the
+/// grace window Bear escalates to SIGKILL, so Bear and the build both end
+/// within the time budget and Bear reports non-success.
+// Requirements: interception-signal-forwarding
+#[test]
+#[cfg(target_family = "unix")]
+#[cfg(all(has_executable_shell, has_executable_sleep))]
+fn signal_escalates_when_build_ignores_it() -> Result<()> {
+    let env = TestEnvironment::new("signal_escalation")?;
+
+    let ready = env.test_dir().join("ready");
+    // The build ignores TERM and keeps running, forcing the SIGKILL escalation.
+    let script = format!(
+        "trap '' TERM ; echo ready > {ready} ; while true ; do {sleep} 1 ; done",
+        ready = ready.display(),
+        sleep = SLEEP_PATH,
+    );
+
+    let mut cmd = env.command_bear();
+    cmd.current_dir(env.test_dir())
+        .args(["--output", "compile_commands.json", "--", SHELL_PATH, "-c", &script])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    let mut child = cmd.spawn().expect("failed to spawn bear");
+
+    wait_for_file(&ready);
+
+    let signal_time = Instant::now();
+    let pid = child.id().to_string();
+    let kill_status =
+        std::process::Command::new("kill").arg("-TERM").arg(&pid).status().expect("kill -TERM failed to run");
+    assert!(kill_status.success(), "kill -TERM reported failure");
+
+    let status = child.wait().expect("failed to wait for bear");
+    let elapsed = signal_time.elapsed();
+
+    assert!(!status.success(), "bear must report non-success after escalating");
+    assert!(
+        elapsed.as_secs() < 2,
+        "bear must stop an unresponsive build within the budget, took {elapsed:?}"
+    );
+    Ok(())
+}
+
 // Semantic mode exit code tests (note: this is now called 'semantic' not 'citnames')
 
 /// Test that semantic command returns 0 for valid input

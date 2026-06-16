@@ -20,7 +20,7 @@ thiserror.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 log.workspace = true
-signal-hook.workspace = true
+signal-hook = { workspace = true, features = ["iterator"] }
 which.workspace = true
 
 [target.'cfg(unix)'.dependencies]
