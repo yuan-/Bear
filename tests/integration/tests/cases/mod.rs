@@ -29,6 +29,8 @@
 
 pub mod compilation_output;
 pub mod config;
+#[cfg(all(has_preload_library, has_executable_compiler_c, has_executable_shell))]
+pub mod environment_arguments;
 pub mod exit_codes;
 #[cfg(has_preload_library)]
 pub mod hardened_intercept;

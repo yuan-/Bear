@@ -216,12 +216,22 @@ pub struct Format {
 
 /// Controls how the `arguments` field of each entry is assembled during
 /// semantic analysis.
-#[derive(Clone, Debug, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct ArgumentsFormat {
     /// Replace `@file` response-file references with their tokenized contents.
     /// Disabled by default: an `@file` argument is recorded verbatim.
     #[serde(default)]
     pub from_response_files: bool,
+    /// Fold compiler environment variables (e.g. `CPATH`) into each entry's
+    /// arguments as explicit flags. Enabled by default.
+    #[serde(default = "default_enabled")]
+    pub from_environment: bool,
+}
+
+impl Default for ArgumentsFormat {
+    fn default() -> Self {
+        Self { from_response_files: false, from_environment: true }
+    }
 }
 
 /// Format configuration of paths in the JSON compilation database.

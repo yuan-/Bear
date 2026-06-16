@@ -26,6 +26,9 @@ struct FlagBasedInterpreter {
     /// When false (default), only '-' prefixed arguments are treated as flags.
     slash_prefix: bool,
     env_rules: &'static [EnvRule],
+    /// When true, environment variables in `env_rules` are folded into the
+    /// recognized arguments (`format.arguments.from_environment`).
+    from_environment: bool,
 }
 
 impl FlagBasedInterpreter {
@@ -37,8 +40,16 @@ impl FlagBasedInterpreter {
         ignore_flags: &'static [&'static str],
         slash_prefix: bool,
         env_rules: &'static [EnvRule],
+        from_environment: bool,
     ) -> Self {
-        Self { analyzer: FlagAnalyzer::new(flags), ignore_executables, ignore_flags, slash_prefix, env_rules }
+        Self {
+            analyzer: FlagAnalyzer::new(flags),
+            ignore_executables,
+            ignore_flags,
+            slash_prefix,
+            env_rules,
+            from_environment,
+        }
     }
 
     fn should_ignore(&self, execution: &Execution) -> Option<&'static str> {
@@ -70,7 +81,11 @@ impl Interpreter for FlagBasedInterpreter {
 
         let Execution { executable, mut arguments, working_dir, environment } = execution;
         let annotated_args = parse_arguments_owned(&self.analyzer, &mut arguments, self.slash_prefix);
-        let (prepend_args, append_args) = parse_environment(&environment, self.env_rules);
+        let (prepend_args, append_args) = if self.from_environment {
+            parse_environment(&environment, self.env_rules)
+        } else {
+            (Vec::new(), Vec::new())
+        };
 
         let mut all_args = prepend_args;
         all_args.extend(annotated_args);
@@ -245,133 +260,146 @@ include!(concat!(env!("OUT_DIR"), "/flags_ibm_xl.rs"));
 include!(concat!(env!("OUT_DIR"), "/flags_vala.rs"));
 
 /// Factory functions returning opaque interpreters so callers never see concrete types.
-pub(super) fn gcc() -> impl Interpreter {
+pub(super) fn gcc(from_environment: bool) -> impl Interpreter {
     FlagBasedInterpreter::new(
         &GCC_FLAGS,
         &GCC_IGNORE_EXECUTABLES,
         &GCC_IGNORE_FLAGS,
         GCC_SLASH_PREFIX,
         &GCC_ENV_RULES,
+        from_environment,
     )
 }
 
-pub(super) fn clang() -> impl Interpreter {
+pub(super) fn clang(from_environment: bool) -> impl Interpreter {
     FlagBasedInterpreter::new(
         &CLANG_FLAGS,
         &CLANG_IGNORE_EXECUTABLES,
         &CLANG_IGNORE_FLAGS,
         CLANG_SLASH_PREFIX,
         &CLANG_ENV_RULES,
+        from_environment,
     )
 }
 
-pub(super) fn flang() -> impl Interpreter {
+pub(super) fn flang(from_environment: bool) -> impl Interpreter {
     FlagBasedInterpreter::new(
         &FLANG_FLAGS,
         &FLANG_IGNORE_EXECUTABLES,
         &FLANG_IGNORE_FLAGS,
         FLANG_SLASH_PREFIX,
         &FLANG_ENV_RULES,
+        from_environment,
     )
 }
 
-pub(super) fn cuda() -> impl Interpreter {
+pub(super) fn cuda(from_environment: bool) -> impl Interpreter {
     FlagBasedInterpreter::new(
         &CUDA_FLAGS,
         &CUDA_IGNORE_EXECUTABLES,
         &CUDA_IGNORE_FLAGS,
         CUDA_SLASH_PREFIX,
         &CUDA_ENV_RULES,
+        from_environment,
     )
 }
 
-pub(super) fn intel_fortran() -> impl Interpreter {
+pub(super) fn intel_fortran(from_environment: bool) -> impl Interpreter {
     FlagBasedInterpreter::new(
         &INTEL_FORTRAN_FLAGS,
         &INTEL_FORTRAN_IGNORE_EXECUTABLES,
         &INTEL_FORTRAN_IGNORE_FLAGS,
         INTEL_FORTRAN_SLASH_PREFIX,
         &INTEL_FORTRAN_ENV_RULES,
+        from_environment,
     )
 }
 
-pub(super) fn cray_fortran() -> impl Interpreter {
+pub(super) fn cray_fortran(from_environment: bool) -> impl Interpreter {
     FlagBasedInterpreter::new(
         &CRAY_FORTRAN_FLAGS,
         &CRAY_FORTRAN_IGNORE_EXECUTABLES,
         &CRAY_FORTRAN_IGNORE_FLAGS,
         CRAY_FORTRAN_SLASH_PREFIX,
         &CRAY_FORTRAN_ENV_RULES,
+        from_environment,
     )
 }
 
-pub(super) fn msvc() -> impl Interpreter {
+pub(super) fn msvc(from_environment: bool) -> impl Interpreter {
     FlagBasedInterpreter::new(
         &MSVC_FLAGS,
         &MSVC_IGNORE_EXECUTABLES,
         &MSVC_IGNORE_FLAGS,
         MSVC_SLASH_PREFIX,
         &MSVC_ENV_RULES,
+        from_environment,
     )
 }
 
-pub(super) fn clang_cl() -> impl Interpreter {
+pub(super) fn clang_cl(from_environment: bool) -> impl Interpreter {
     FlagBasedInterpreter::new(
         &CLANG_CL_FLAGS,
         &CLANG_CL_IGNORE_EXECUTABLES,
         &CLANG_CL_IGNORE_FLAGS,
         CLANG_CL_SLASH_PREFIX,
         &CLANG_CL_ENV_RULES,
+        from_environment,
     )
 }
 
-pub(super) fn intel_cc() -> impl Interpreter {
+pub(super) fn intel_cc(from_environment: bool) -> impl Interpreter {
     FlagBasedInterpreter::new(
         &INTEL_CC_FLAGS,
         &INTEL_CC_IGNORE_EXECUTABLES,
         &INTEL_CC_IGNORE_FLAGS,
         INTEL_CC_SLASH_PREFIX,
         &INTEL_CC_ENV_RULES,
+        from_environment,
     )
 }
 
-pub(super) fn nvidia_hpc() -> impl Interpreter {
+pub(super) fn nvidia_hpc(from_environment: bool) -> impl Interpreter {
     FlagBasedInterpreter::new(
         &NVIDIA_HPC_FLAGS,
         &NVIDIA_HPC_IGNORE_EXECUTABLES,
         &NVIDIA_HPC_IGNORE_FLAGS,
         NVIDIA_HPC_SLASH_PREFIX,
         &NVIDIA_HPC_ENV_RULES,
+        from_environment,
     )
 }
 
-pub(super) fn armclang() -> impl Interpreter {
+pub(super) fn armclang(from_environment: bool) -> impl Interpreter {
     FlagBasedInterpreter::new(
         &ARMCLANG_FLAGS,
         &ARMCLANG_IGNORE_EXECUTABLES,
         &ARMCLANG_IGNORE_FLAGS,
         ARMCLANG_SLASH_PREFIX,
         &ARMCLANG_ENV_RULES,
+        from_environment,
     )
 }
 
-pub(super) fn ibm_xl() -> impl Interpreter {
+pub(super) fn ibm_xl(from_environment: bool) -> impl Interpreter {
     FlagBasedInterpreter::new(
         &IBM_XL_FLAGS,
         &IBM_XL_IGNORE_EXECUTABLES,
         &IBM_XL_IGNORE_FLAGS,
         IBM_XL_SLASH_PREFIX,
         &IBM_XL_ENV_RULES,
+        from_environment,
     )
 }
 
-pub(super) fn vala() -> impl Interpreter {
+pub(super) fn vala(from_environment: bool) -> impl Interpreter {
     FlagBasedInterpreter::new(
         &VALA_FLAGS,
         &VALA_IGNORE_EXECUTABLES,
         &VALA_IGNORE_FLAGS,
         VALA_SLASH_PREFIX,
         &VALA_ENV_RULES,
+        from_environment,
     )
 }
 

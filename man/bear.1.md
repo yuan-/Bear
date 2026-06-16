@@ -132,6 +132,7 @@ format:
     include_output_field: true
   arguments:
     from_response_files: false
+    from_environment: true
 ```
 
 This example configuration file:
@@ -198,6 +199,7 @@ Output formatting configuration:
 - **entries.use_array_format**: Use arguments array instead of command string. Note: vala-language-server reads only the command-string form, so set this to `false` for Vala projects (see TROUBLESHOOTING)
 - **entries.include_output_field**: Include output field in entries
 - **arguments.from_response_files**: Replace `@file` response-file references in each entry's arguments with the file's tokenized contents (resolved relative to the compiler's working directory, expanded recursively, MSVC/clang-cl using Windows quoting and other compilers using GCC/Clang quoting). Disabled by default, in which case an `@file` argument is recorded verbatim. Missing or unreadable files are left literal with a warning.
+- **arguments.from_environment**: Fold compiler environment variables that act as implicit flags into each entry's arguments -- GCC/Clang header-search paths (`CPATH`, `C_INCLUDE_PATH`, `CPLUS_INCLUDE_PATH`, `OBJC_INCLUDE_PATH`) become include flags, and MSVC's `CL` / `_CL_` become leading / trailing options. Enabled by default. Set to `false` to record only the flags that appeared on the command line. (This is unrelated to the `CC="gcc -std=c11"` convention handled during interception.)
 
 ## Default Configuration
 
