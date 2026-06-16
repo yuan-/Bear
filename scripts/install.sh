@@ -117,7 +117,7 @@ tmp_bear_sh="$(mktemp)"
 trap 'rm -f "$tmp_bear_sh"' EXIT
 cat > "$tmp_bear_sh" <<ENTRY_SCRIPT
 #!/bin/sh
-$PREFIX/libexec/bear/bin/bear-driver "\$@"
+exec $PREFIX/libexec/bear/bin/bear-driver "\$@"
 ENTRY_SCRIPT
 install -m 755 "$tmp_bear_sh" "$DESTDIR$PREFIX/bin/bear"
 rm -f "$tmp_bear_sh"
