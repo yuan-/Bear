@@ -27,9 +27,11 @@ It intercepts compiler invocations during a build and records them.
 | Crate | Purpose |
 |---|---|
 | `crates/bear` | Main driver, CLI, semantic analysis, output |
+| `crates/bear-driver` | Driver/supervisor binary; orchestrates interception and output |
 | `crates/intercept` | Shared/agent-side interception runtime (Execution, reporter, wire, env helpers) |
 | `crates/intercept-supervisor` | Driver-side interception (supervise, TCP collector, build environment) |
 | `crates/intercept-preload` | `LD_PRELOAD` / `DYLD_INSERT_LIBRARIES` shared library |
+| `crates/bear-wrapper` | Compiler wrapper binary; reports intercepted executions |
 | `crates/bear-completions` | Shell-completion script generator |
 | `build-support/platform-checks` | Build-time platform capability detection |
 | `build-support/compilers-codegen` | Code generator for compiler flag tables |
@@ -47,6 +49,7 @@ These files contain rules, context, and constraints specific to that area.
 | Edit the YAML-to-Rust code generator | `build-support/compilers-codegen/CLAUDE.md` |
 | Add or change a host capability probe | `build-support/platform-checks/CLAUDE.md` |
 | Touch the preload interception library | `crates/intercept-preload/CLAUDE.md` |
+| Touch driver-side interception (supervise, collector, build env) | `crates/intercept-supervisor/CLAUDE.md` |
 | Touch the shell-completions binary | `crates/bear-completions/CLAUDE.md` |
 | Write or modify integration tests | `tests/integration/CLAUDE.md` |
 | Edit or regenerate the man page | `man/CLAUDE.md` |
