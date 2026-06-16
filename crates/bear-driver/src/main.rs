@@ -1,5 +1,17 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+//! This binary is the build supervisor (driver) of the application.
+//!
+//! It orchestrates interception and output: it captures the application
+//! context, derives the installation layout from the current executable,
+//! parses the command line arguments, and loads the configuration. From
+//! those inputs it configures the selected mode and runs it, returning the
+//! build's exit code.
+//!
+//! The heavy lifting lives elsewhere: the `bear` library provides argument
+//! parsing, configuration, and the modes, while `intercept_supervisor`
+//! supplies the application context and installation layout.
+
 use bear::{args, config, modes};
 use intercept_supervisor::{context, installation};
 use std::env;
