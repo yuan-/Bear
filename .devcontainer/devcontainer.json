@@ -6,6 +6,26 @@
     "dockerfile": "Dockerfile",
   },
 
+  // Give the container a writable, delegated cgroup v2 subtree. By default
+  // rootless Podman mounts /sys/fs/cgroup read-only, so a process cannot create
+  // a child cgroup -- which the cgroup-based process-tree teardown path
+  // (interception-signal-forwarding) needs in order to be developed and tested.
+  //
+  // --systemd=always makes Podman mount the container's own cgroup read-write
+  // inside our private cgroup namespace (the cpu/io/memory/pids controllers are
+  // already delegated by the kernel). Host prerequisite for rootless Podman:
+  // controller delegation for the user session, e.g.
+  //   /etc/systemd/system/user@.service.d/delegate.conf:
+  //     [Service]
+  //     Delegate=cpu cpuset io memory pids
+  // (usually already in place -- the controllers above being visible confirms
+  // it). Podman-specific flag.
+  //
+  // After changing this, rebuild the container and verify with:
+  //   findmnt /sys/fs/cgroup        # should report rw
+  //   mkdir "/sys/fs/cgroup$(awk -F: '/^0::/{print $3}' /proc/self/cgroup)/x"
+  "runArgs": ["--systemd=always"],
+
   // Override the automatic workspace mount to add the :z SELinux relabel option.
   // This is required on Fedora/RHEL hosts where SELinux is enforcing, otherwise
   // the bind-mounted directory is inaccessible inside the container.
@@ -40,7 +60,7 @@
     "SSH_AUTH_SOCK": "/ssh-agent",
   },
 
-  // In rootless Docker on Fedora/RHEL, container uid=0 (root) maps to the host
+  // In rootless Podman on Fedora/RHEL, container uid=0 (root) maps to the host
   // user's uid (laca, uid=1000). Running as root inside the container is therefore
   // safe and ensures the mounted project files are writable.
   "remoteUser": "root",
