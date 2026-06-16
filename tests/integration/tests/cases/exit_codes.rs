@@ -2,6 +2,8 @@
 
 use crate::fixtures::constants::*;
 use crate::fixtures::infrastructure::TestEnvironment;
+#[cfg(all(target_family = "unix", has_executable_compiler_c, has_executable_shell))]
+use crate::fixtures::infrastructure::filename_of;
 use anyhow::Result;
 #[cfg(has_executable_sleep)]
 use std::process::Stdio;
@@ -384,6 +386,125 @@ fn cgroup_v2_writable() -> bool {
     let ok = dir.join("cgroup.kill").exists();
     let _ = std::fs::remove_dir(&dir);
     ok
+}
+
+/// Bear relays the exact signal it received rather than substituting one of
+/// its own: a build that traps `SIGINT` and `SIGTERM` differently sees the
+/// real one. Each case sends a distinct signal and asserts the matching trap
+/// ran (via its marker) and that Bear propagated that trap's exit code.
+// Requirements: interception-signal-forwarding
+#[test]
+#[cfg(target_family = "unix")]
+#[cfg(all(has_executable_shell, has_executable_sleep))]
+fn forwards_the_exact_signal_received() -> Result<()> {
+    // (signal for `kill`, marker its trap writes, exit code its trap uses)
+    let cases = [("INT", "INT", 10), ("TERM", "TERM", 20)];
+
+    for (signal, expected_marker, expected_code) in cases {
+        let env = TestEnvironment::new(&format!("signal_fidelity_{signal}"))?;
+
+        let marker = env.test_dir().join("caught.marker");
+        let ready = env.test_dir().join("ready");
+        // Distinct INT and TERM traps: whichever marker appears reveals which
+        // signal Bear actually forwarded. If Bear substituted a signal, the
+        // wrong trap would fire.
+        let script = format!(
+            "trap 'echo INT > {m} ; exit 10' INT ; trap 'echo TERM > {m} ; exit 20' TERM ; echo ready > {r} ; {sleep} 60",
+            m = marker.display(),
+            r = ready.display(),
+            sleep = SLEEP_PATH,
+        );
+
+        let mut cmd = env.command_bear();
+        cmd.current_dir(env.test_dir())
+            .args(["--output", "compile_commands.json", "--", SHELL_PATH, "-c", &script])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        let mut child = cmd.spawn().expect("failed to spawn bear");
+
+        wait_for_file(&ready);
+
+        let pid = child.id().to_string();
+        let kill_status = std::process::Command::new("kill")
+            .arg(format!("-{signal}"))
+            .arg(&pid)
+            .status()
+            .expect("kill failed to run");
+        assert!(kill_status.success(), "kill -{signal} reported failure");
+
+        let status = child.wait().expect("failed to wait for bear");
+
+        let caught = std::fs::read_to_string(&marker).unwrap_or_default();
+        assert_eq!(caught.trim(), expected_marker, "{signal}: build trapped the wrong signal");
+        assert_eq!(
+            status.code(),
+            Some(expected_code),
+            "{signal}: bear did not propagate the trap's exit code"
+        );
+    }
+
+    Ok(())
+}
+
+/// Wrapper mode nests supervision: bear-driver -> sh -> bear-wrapper -> real
+/// cc. A compiler blocked mid-compile (reading a writer-less FIFO) is under
+/// the wrapper's `Inherit` supervision when the signal arrives. Signaling the
+/// driver must still tear the whole nested tree down within the budget -- not
+/// leave Bear hanging on the blocked compiler -- so the contract holds in
+/// wrapper mode just as in preload mode.
+// Requirements: interception-signal-forwarding, interception-wrapper-mechanism
+#[test]
+#[cfg(target_family = "unix")]
+#[cfg(all(has_executable_compiler_c, has_executable_shell))]
+fn signal_tears_down_nested_wrapper_supervision() -> Result<()> {
+    let env = TestEnvironment::new("signal_wrapper_teardown")?;
+
+    // Named pipe as the compiler's input: with no writer the compiler blocks
+    // in read() and stays mid-compile until a signal arrives.
+    let fifo = env.test_dir().join("source.c");
+    let mkfifo_status = std::process::Command::new("mkfifo").arg(&fifo).status()?;
+    assert!(mkfifo_status.success(), "mkfifo failed -- this test needs a POSIX environment");
+
+    // Invoke the compiler via $CC so wrapper mode actually supervises it.
+    let build = format!("$CC -x c -c {fifo} -o out.o", fifo = fifo.display());
+    let script = env.create_shell_script("build.sh", &build)?;
+
+    let config = "schema: \"4.1\"\n\nintercept:\n  mode: wrapper\n";
+    let config_path = env.test_dir().join("config.yaml");
+    std::fs::write(&config_path, config)?;
+
+    let mut cmd = env.command_bear();
+    cmd.current_dir(env.test_dir()).env("CC", filename_of(COMPILER_C_PATH)).args([
+        "--config",
+        config_path.to_str().unwrap(),
+        "--output",
+        "compile_commands.json",
+        "--",
+        SHELL_PATH,
+        script.to_str().unwrap(),
+    ]);
+    cmd.stdout(Stdio::null()).stderr(Stdio::null());
+    let mut child = cmd.spawn().expect("failed to spawn bear");
+
+    // Let the build reach the compiler and the compiler block on the FIFO.
+    std::thread::sleep(std::time::Duration::from_millis(800));
+
+    let signal_time = Instant::now();
+    let pid = child.id().to_string();
+    let kill_status =
+        std::process::Command::new("kill").arg("-TERM").arg(&pid).status().expect("kill -TERM failed to run");
+    assert!(kill_status.success(), "kill -TERM reported failure");
+
+    let status = child.wait().expect("failed to wait for bear");
+    let elapsed = signal_time.elapsed();
+
+    assert!(!status.success(), "bear must report non-success after signaling a wrapper-mode build");
+    assert!(
+        elapsed.as_secs() < 2,
+        "wrapper-mode teardown must reach the blocked compiler within budget, took {elapsed:?}"
+    );
+
+    Ok(())
 }
 
 /// Block until the supervised build reports it is ready (it creates `path`),
