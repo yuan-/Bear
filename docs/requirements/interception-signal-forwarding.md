@@ -1,6 +1,6 @@
 ---
 title: Signal forwarding and exit-code propagation
-status: implemented
+status: in-progress
 ---
 
 ## Intent
@@ -38,9 +38,18 @@ below must hold identically regardless of which mode is active.
 - When the build is terminated by a signal rather than exiting
   normally, Bear exits with a non-zero code so that scripts and CI
   systems see a failed build
+- The build receives the same signal Bear received: a `SIGINT` arrives
+  as `SIGINT` and a `SIGTERM` as `SIGTERM`, so a build that handles the
+  two differently sees the real one. Bear relays the signal rather than
+  substituting one of its own
+- The whole process tree under the build is stopped, not just the
+  immediate child: descendants the build spawned do not survive Bear
 - If the build is a shell script that installs its own signal trap,
   the script receives the signal, its trap runs, and Bear's exit
   code reflects whatever the script ultimately exited with
+- The build is first asked to stop with the received signal and given
+  a brief grace period to shut down cleanly before it is forced; a
+  build that ignores the signal is still stopped within the time budget
 - Every acceptance criterion above applies to every supported
   interception mode
 
@@ -56,22 +65,21 @@ below must hold identically regardless of which mode is active.
 
 ## Known limitations
 
-**The specific signal is not distinguished.** `SIGINT` and `SIGTERM`
-both cause Bear to tear down the build immediately. A caller that
-wanted to use `SIGTERM` for "graceful stop" and `SIGINT` for
-"interactive interrupt" will observe the same behaviour for both.
-
 **The signal that terminated the build is not encoded in Bear's exit
 code.** The shell convention of `128 + signal_number` is not
 followed. Scripts that inspect Bear's exit code to identify *why* a
 build stopped cannot distinguish signal termination from a regular
-build failure.
+build failure. (The build itself still receives the real signal; this
+limitation is only about Bear's own exit code.)
 
-**Daemon-style grandchildren may survive.** If the build spawns
-processes that detach from their parent (for example, a background
-service started by the build), they may keep running after Bear has
-exited. Well-behaved build drivers (`make`, `ninja`) avoid this by
-propagating termination downwards themselves.
+**A child that re-detaches into its own session can still survive.**
+Bear stops the whole process tree by signalling the build's process
+group. A child that deliberately starts a new session of its own (a
+daemon that calls `setsid`) leaves that group and may keep running
+after Bear exits. On Linux, where the host provides a usable cgroup,
+Bear closes this gap by terminating the build's cgroup instead, which a
+child cannot leave; where no such cgroup is available Bear falls back
+to the process-group behaviour and the limitation applies.
 
 **Windows signal coverage is limited.** Only `SIGTERM` and `SIGINT`
 are observed. Other Windows-specific termination mechanisms (such as
@@ -121,3 +129,7 @@ Given a build that is interrupted mid-compile:
 
 - Related: `interception-preload-mechanism`,
   `interception-wrapper-mechanism`.
+
+## Rationale
+
+- [process-tree teardown and graceful forwarding](../rationale/process-tree-teardown.md)
