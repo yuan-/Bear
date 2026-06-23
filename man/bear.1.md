@@ -196,7 +196,7 @@ Output formatting configuration:
   - **canonical**: Resolve to canonical path,
   - **relative**: Make relative to directory field,
   - **absolute**: Convert to absolute path,
-- **entries.use_array_format**: Use arguments array instead of command string. Note: vala-language-server reads only the command-string form, so set this to `false` for Vala projects (see TROUBLESHOOTING)
+- **entries.use_array_format**: Use the arguments array (default) instead of the command string. Set to `false` for consumers that read only the `command` field.
 - **entries.include_output_field**: Include output field in entries
 - **arguments.from_response_files**: Replace `@file` response-file references in each entry's arguments with the file's tokenized contents (resolved relative to the compiler's working directory, expanded recursively, MSVC/clang-cl using Windows quoting and other compilers using GCC/Clang quoting). Disabled by default, in which case an `@file` argument is recorded verbatim. Missing or unreadable files are left literal with a warning.
 - **arguments.from_environment**: Fold compiler environment variables that act as implicit flags into each entry's arguments -- GCC/Clang header-search paths (`CPATH`, `C_INCLUDE_PATH`, `CPLUS_INCLUDE_PATH`, `OBJC_INCLUDE_PATH`) become include flags, and MSVC's `CL` / `_CL_` become leading / trailing options. Enabled by default. Set to `false` to record only the flags that appeared on the command line. (This is unrelated to the `CC="gcc -std=c11"` convention handled during interception.)
@@ -329,9 +329,9 @@ compiler untouched.
 Bear records `valac` invocations, producing one entry per `.vala` (or
 `.gs`) source. Two things are worth knowing:
 
-- **vala-language-server requires the command-string form.** It reads the
-  `command` field and ignores the `arguments` array, so build the database
-  with the array format disabled:
+- **vala-language-server might require the command-string form.** It
+  reads the `command` field and ignores the `arguments` array, so build
+  the database with the array format disabled:
 
     ```yaml
     format:

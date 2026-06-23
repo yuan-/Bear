@@ -231,10 +231,10 @@ The allowed values are:
 \f[B]absolute\f[R]: Convert to absolute path,
 .RE
 .IP \(bu 2
-\f[B]entries.use_array_format\f[R]: Use arguments array instead of
-command string.
-Note: vala\-language\-server reads only the command\-string form, so set
-this to \f[CR]false\f[R] for Vala projects (see TROUBLESHOOTING)
+\f[B]entries.use_array_format\f[R]: Use the arguments array (default)
+instead of the command string.
+Set to \f[CR]false\f[R] for consumers that read only the
+\f[CR]command\f[R] field.
 .IP \(bu 2
 \f[B]entries.include_output_field\f[R]: Include output field in entries
 .IP \(bu 2
@@ -394,9 +394,10 @@ Bear records \f[CR]valac\f[R] invocations, producing one entry per
 \f[CR].vala\f[R] (or \f[CR].gs\f[R]) source.
 Two things are worth knowing:
 .IP \(bu 2
-\f[B]vala\-language\-server requires the command\-string form.\f[R] It
-reads the \f[CR]command\f[R] field and ignores the \f[CR]arguments\f[R]
-array, so build the database with the array format disabled:
+\f[B]vala\-language\-server might require the command\-string form.\f[R]
+It reads the \f[CR]command\f[R] field and ignores the
+\f[CR]arguments\f[R] array, so build the database with the array format
+disabled:
 .RS 2
 .IP
 .EX
