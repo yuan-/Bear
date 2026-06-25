@@ -1,0 +1,337 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+//! Compilation database model, parsing, serialization, and normalization.
+//!
+//! A Clang JSON compilation database is an array of entries. Each entry has a
+//! `directory`, a `file`, and the compiler invocation expressed either as an
+//! `arguments` array or as a `command` string; `output` is optional. This
+//! module parses both forms into a single in-memory [`Entry`], and applies the
+//! explicit, individually toggleable normalization operations the comparator
+//! uses (see [`Normalization`]).
+
+use std::io::{BufReader, Read, Write};
+use std::path::{Path, PathBuf};
+
+use serde::Serializer as _;
+use serde::{Deserialize, Serialize};
+
+/// Errors raised while reading or normalizing a compilation database.
+#[derive(Debug, thiserror::Error)]
+pub enum CdbError {
+    #[error("i/o error while reading or writing the compilation database: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("failed to parse compilation database JSON: {0}")]
+    Json(#[from] serde_json::Error),
+    #[error("entry {index} has neither an 'arguments' array nor a 'command' string")]
+    MissingInvocation { index: usize },
+    #[error("entry {index} has a 'command' string that is not valid shell words: {source}")]
+    BadCommand { index: usize, source: shell_words::ParseError },
+}
+
+/// A single compilation database entry in normalized in-memory form.
+///
+/// Both the `arguments` and `command` input encodings are folded into
+/// `arguments` here; serialization always emits the `arguments` form.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Entry {
+    pub directory: String,
+    pub file: String,
+    pub arguments: Vec<String>,
+    pub output: Option<String>,
+}
+
+/// Raw on-disk shape of an entry, accepting both `arguments` and `command`.
+#[derive(Debug, Deserialize)]
+struct RawEntry {
+    directory: String,
+    file: String,
+    #[serde(default)]
+    arguments: Option<Vec<String>>,
+    #[serde(default)]
+    command: Option<String>,
+    #[serde(default)]
+    output: Option<String>,
+}
+
+/// On-disk shape used when serializing a normalized entry.
+#[derive(Debug, Serialize)]
+struct OutEntry<'a> {
+    directory: &'a str,
+    file: &'a str,
+    arguments: &'a [String],
+    #[serde(skip_serializing_if = "Option::is_none")]
+    output: Option<&'a str>,
+}
+
+impl Entry {
+    fn from_raw(index: usize, raw: RawEntry) -> Result<Self, CdbError> {
+        let arguments = match (raw.arguments, raw.command) {
+            (Some(args), _) => args,
+            (None, Some(command)) => {
+                shell_words::split(&command).map_err(|source| CdbError::BadCommand { index, source })?
+            }
+            (None, None) => return Err(CdbError::MissingInvocation { index }),
+        };
+        Ok(Entry { directory: raw.directory, file: raw.file, arguments, output: raw.output })
+    }
+
+    fn to_out(&self) -> OutEntry<'_> {
+        OutEntry {
+            directory: &self.directory,
+            file: &self.file,
+            arguments: &self.arguments,
+            output: self.output.as_deref(),
+        }
+    }
+
+    /// A stable key for matching two entries that describe the same translation
+    /// unit: the `file` plus the `output` (which disambiguates one source
+    /// compiled into several objects with different flags).
+    pub fn match_key(&self) -> (String, Option<String>) {
+        (self.file.clone(), self.output.clone())
+    }
+}
+
+/// A parsed compilation database.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompilationDatabase {
+    pub entries: Vec<Entry>,
+}
+
+impl CompilationDatabase {
+    /// Parse a compilation database from a reader over its JSON text.
+    ///
+    /// The reader is consumed incrementally, so no full-text copy is held
+    /// alongside the parsed entries. The entries themselves are still
+    /// materialized into memory; streaming them is a separate step.
+    pub fn from_reader<R: Read>(reader: R) -> Result<Self, CdbError> {
+        let raw: Vec<RawEntry> = serde_json::from_reader(BufReader::new(reader))?;
+        let entries = raw
+            .into_iter()
+            .enumerate()
+            .map(|(index, e)| Entry::from_raw(index, e))
+            .collect::<Result<_, _>>()?;
+        Ok(CompilationDatabase { entries })
+    }
+
+    /// Serialize the database as pretty-printed JSON to a writer (always the
+    /// `arguments` form, with a trailing newline).
+    ///
+    /// Entries are streamed to the writer as they are visited, so no full-text
+    /// copy of the output is buffered in memory.
+    pub fn to_writer<W: Write>(&self, mut writer: W) -> Result<(), CdbError> {
+        let out = self.entries.iter().map(Entry::to_out);
+        let mut serializer = serde_json::Serializer::pretty(&mut writer);
+        serializer.collect_seq(out)?;
+        writer.write_all(b"\n")?;
+        Ok(())
+    }
+
+    /// Apply the requested normalization operations in place.
+    ///
+    /// The operations are independent and off by default; only those set on
+    /// `norm` run. `sort` is applied last so the canonical order reflects the
+    /// post-substitution, post-relativization values.
+    pub fn normalize(&mut self, norm: &Normalization) {
+        if let Some(canonical) = &norm.substitute_compiler {
+            for entry in &mut self.entries {
+                if let Some(first) = entry.arguments.first_mut() {
+                    *first = canonical.clone();
+                }
+            }
+        }
+        if let Some(root) = &norm.relativize_paths {
+            for entry in &mut self.entries {
+                entry.directory = relativize(&entry.directory, root);
+                entry.file = relativize(&entry.file, root);
+                if let Some(output) = &mut entry.output {
+                    *output = relativize(output, root);
+                }
+            }
+        }
+        if norm.sort {
+            self.entries.sort_by(Entry::sort_key);
+        }
+    }
+}
+
+impl Entry {
+    /// Total order over entries for the canonical `sort` normalization. The
+    /// arguments are compared as-is; argument order inside an entry is
+    /// semantically significant for a compiler invocation, so it is preserved.
+    fn sort_key(a: &Entry, b: &Entry) -> std::cmp::Ordering {
+        (&a.file, &a.output, &a.directory, &a.arguments).cmp(&(
+            &b.file,
+            &b.output,
+            &b.directory,
+            &b.arguments,
+        ))
+    }
+}
+
+/// The set of normalization operations to apply before comparison or
+/// serialization. Every field is off/empty by default; construct with
+/// [`Normalization::default`] and set only what a given comparison needs.
+#[derive(Debug, Clone, Default)]
+pub struct Normalization {
+    /// Emit the database in a canonical entry order.
+    pub sort: bool,
+    /// Replace the first argument (compiler driver) with this canonical value.
+    pub substitute_compiler: Option<String>,
+    /// Rebase the absolute `directory`, `file`, and `output` paths against this
+    /// root. Paths embedded inside `arguments` (e.g. `-I/abs/path`) are left
+    /// untouched; argument-level rebasing is deferred until a real diff needs it.
+    pub relativize_paths: Option<PathBuf>,
+}
+
+/// Rebase an absolute path string against `root`. A path that is not under
+/// `root` (or is already relative) is returned unchanged. Only the structured
+/// `directory`/`file`/`output` fields are rebased; paths embedded inside
+/// arguments are left untouched (see the `relativize_paths` field docs).
+fn relativize(value: &str, root: &Path) -> String {
+    let path = Path::new(value);
+    match path.strip_prefix(root) {
+        Ok(rel) => rel.to_string_lossy().into_owned(),
+        Err(_) => value.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Parse from a string fixture through the reader API.
+    fn parse(text: &str) -> Result<CompilationDatabase, CdbError> {
+        CompilationDatabase::from_reader(text.as_bytes())
+    }
+
+    /// Serialize through the writer API and recover the text for assertions.
+    fn serialize(db: &CompilationDatabase) -> String {
+        let mut buf = Vec::new();
+        db.to_writer(&mut buf).unwrap();
+        String::from_utf8(buf).unwrap()
+    }
+
+    fn arguments_db() -> &'static str {
+        r#"[
+          {
+            "directory": "/work/build",
+            "file": "/work/src/a.c",
+            "arguments": ["/usr/bin/cc", "-c", "/work/src/a.c", "-o", "a.o"],
+            "output": "a.o"
+          }
+        ]"#
+    }
+
+    fn command_db() -> &'static str {
+        r#"[
+          {
+            "directory": "/work/build",
+            "file": "/work/src/a.c",
+            "command": "/usr/bin/cc -c /work/src/a.c -o a.o",
+            "output": "a.o"
+          }
+        ]"#
+    }
+
+    #[test]
+    fn parses_arguments_form() {
+        let sut = parse(arguments_db()).unwrap();
+
+        assert_eq!(sut.entries.len(), 1);
+        assert_eq!(sut.entries[0].arguments[0], "/usr/bin/cc");
+        assert_eq!(sut.entries[0].output.as_deref(), Some("a.o"));
+    }
+
+    #[test]
+    fn parses_command_form_into_arguments() {
+        let sut = parse(command_db()).unwrap();
+
+        assert_eq!(sut.entries[0].arguments, vec!["/usr/bin/cc", "-c", "/work/src/a.c", "-o", "a.o"]);
+    }
+
+    #[test]
+    fn arguments_and_command_forms_compare_equal() {
+        let from_args = parse(arguments_db()).unwrap();
+        let from_command = parse(command_db()).unwrap();
+
+        assert_eq!(from_args.entries, from_command.entries);
+    }
+
+    #[test]
+    fn missing_invocation_is_an_error() {
+        let json = r#"[{"directory": "/w", "file": "/w/a.c"}]"#;
+
+        let sut = parse(json);
+
+        assert!(matches!(sut, Err(CdbError::MissingInvocation { index: 0 })));
+    }
+
+    #[test]
+    fn substitute_compiler_replaces_first_argument() {
+        let mut sut = parse(arguments_db()).unwrap();
+        let norm = Normalization { substitute_compiler: Some("cc".to_string()), ..Default::default() };
+
+        sut.normalize(&norm);
+
+        assert_eq!(sut.entries[0].arguments[0], "cc");
+    }
+
+    #[test]
+    fn relativize_paths_rebases_fields_but_leaves_arguments_untouched() {
+        let json = r#"[
+          {
+            "directory": "/work/build",
+            "file": "/work/src/a.c",
+            "arguments": ["cc", "-I/work/include", "-c", "/work/src/a.c"],
+            "output": "/work/build/a.o"
+          }
+        ]"#;
+        let mut sut = parse(json).unwrap();
+        let norm = Normalization { relativize_paths: Some(PathBuf::from("/work")), ..Default::default() };
+
+        sut.normalize(&norm);
+
+        let entry = &sut.entries[0];
+        assert_eq!(entry.directory, "build");
+        assert_eq!(entry.file, "src/a.c");
+        assert_eq!(entry.output.as_deref(), Some("build/a.o"));
+        // Arguments are deliberately left as-is; only the structured fields rebase.
+        assert_eq!(entry.arguments, vec!["cc", "-I/work/include", "-c", "/work/src/a.c"]);
+    }
+
+    #[test]
+    fn sort_produces_canonical_order() {
+        // Two input orderings must yield byte-identical canonical output. The
+        // sort key covers all entry fields, so true ties are impossible and
+        // stability is trivially satisfied; this asserts the canonical-order
+        // property, which is what golden-manifest production relies on.
+        let unsorted = r#"[
+          {"directory": "/w", "file": "/w/b.c", "arguments": ["cc", "-c", "b.c"]},
+          {"directory": "/w", "file": "/w/a.c", "arguments": ["cc", "-c", "a.c"]}
+        ]"#;
+        let reordered = r#"[
+          {"directory": "/w", "file": "/w/a.c", "arguments": ["cc", "-c", "a.c"]},
+          {"directory": "/w", "file": "/w/b.c", "arguments": ["cc", "-c", "b.c"]}
+        ]"#;
+        let norm = Normalization { sort: true, ..Default::default() };
+
+        let mut from_unsorted = parse(unsorted).unwrap();
+        from_unsorted.normalize(&norm);
+        let mut from_reordered = parse(reordered).unwrap();
+        from_reordered.normalize(&norm);
+
+        assert_eq!(from_unsorted.entries[0].file, "/w/a.c");
+        assert_eq!(serialize(&from_unsorted), serialize(&from_reordered));
+    }
+
+    #[test]
+    fn round_trips_through_reader_and_writer() {
+        let original = parse(arguments_db()).unwrap();
+
+        let text = serialize(&original);
+        let sut = parse(&text).unwrap();
+
+        assert_eq!(sut.entries, original.entries);
+    }
+}

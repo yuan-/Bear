@@ -9,6 +9,7 @@ edition.workspace = true
 publish = false
 
 [dev-dependencies]
+bear-test-tools = { path = "../tools" }
 tempfile.workspace = true
 anyhow.workspace = true
 assert_cmd.workspace = true

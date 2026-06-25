@@ -35,6 +35,7 @@ It intercepts compiler invocations during a build and records them.
 | `crates/bear-completions` | Shell-completion script generator |
 | `build-support/platform-checks` | Build-time platform capability detection |
 | `build-support/compilers-codegen` | Code generator for compiler flag tables |
+| `tests/tools` | Shared test tooling; library + `cdb-compare` binary (package `bear-test-tools`) |
 | `tests/integration` | End-to-end tests (package `integration-tests`) |
 
 ## Routing - read before modifying
@@ -52,6 +53,7 @@ These files contain rules, context, and constraints specific to that area.
 | Touch driver-side interception (supervise, collector, build env) | `crates/intercept-supervisor/CLAUDE.md` |
 | Touch the shell-completions binary | `crates/bear-completions/CLAUDE.md` |
 | Write or modify integration tests | `tests/integration/CLAUDE.md` |
+| Edit the test-tooling comparator or normalization | `tests/tools/CLAUDE.md` |
 | Edit or regenerate the man page | `man/CLAUDE.md` |
 | Find project documentation or how it is organized | `docs/CLAUDE.md` |
 | Add, modify, or review a requirement (contract) | `docs/requirements/CLAUDE.md` |
