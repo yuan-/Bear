@@ -13,17 +13,15 @@ Each target picks a validation mode with a `VALIDATION` selector in its
   a change-detector, reblessed deliberately when behavior changes intentionally.
 - **oracle** (curl, Stage 3): gate the capture against the database CMake itself
   emits (`CMAKE_EXPORT_COMPILE_COMMANDS=ON`), on the intersection of translation
-  units, with a small committed allow-list. The oracle is self-renewing: when
-  curl updates, CMake produces a fresh reference, so there is no hand-maintained
-  baseline.
+  units. The oracle is self-renewing: when curl updates, CMake produces a fresh
+  reference, so there is no hand-maintained baseline.
 
 This is the host-orchestrated Podman model (feasibility.md Option C): the
 orchestrator is POSIX `sh` on the host, each target runs in a per-project
 throwaway container, and nothing touches the repo working tree or the
-devcontainer image. The Rust dependency is the Stage 1 `cdb-compare` binary,
-built on the host and used as the comparison gate; the oracle path additionally
-post-processes its JSON with `jq` (bucketing extras, applying the allow-list -
-not a second comparator).
+devcontainer image. The only Rust dependency is the Stage 1 `cdb-compare`
+binary, built on the host: it does the entire comparison for both modes
+(matching, normalization, and the gate), so the harness needs no jq.
 
 The harness contracts are written up in `SPEC.md` (the `dogfood-*` Stage 2 and
 Stage 3 specs). They live here, not under `docs/requirements/`, because they
@@ -56,9 +54,6 @@ govern the test harness, not Bear itself.
   ```
 
   The base image already builds `cdb-compare`, so this reuses that build.
-- `jq` on the host (oracle targets only): the oracle path normalizes the two
-  databases and buckets/allow-lists the comparator's report with `jq`. The
-  harness preflight checks for it when the target's `VALIDATION=oracle`.
 - Enough free disk on the podman graphroot (zlib needs ~2 GiB, curl ~4 GiB for
   the base + target images plus the CMake build tree). The harness preflight
   checks this against the per-target `MIN_FREE_KIB`.
@@ -92,14 +87,13 @@ The harness prints one final `OUTCOME:` line and exits with:
 
 | Outcome      | Exit | Meaning |
 |--------------|------|---------|
-| PASS         | 0    | golden: fresh capture matches the golden. oracle: matched TUs equivalent under the allow-list. No regression. |
-| FAIL         | 1    | golden: golden mismatch (review the diff, then fix Bear or rebless). oracle: matched TUs diverge beyond the allow-list (inspect `oracle-report.json` survivors). A real behavioral change in Bear's output. |
+| PASS         | 0    | golden: fresh capture matches the golden. oracle: matched TUs equivalent to the CMake oracle. No regression. |
+| FAIL         | 1    | golden: golden mismatch (review the diff, then fix Bear or rebless). oracle: matched TUs diverge from CMake's database (inspect the `matched but differing` section of `oracle-report.txt`). A real behavioral change in Bear's output. |
 | INCONCLUSIVE | 2    | The target build failed for its own reasons (source fetch, sha, network, configure/make, OOM). Not a Bear regression. The build log is saved. |
-| ERROR        | 3    | Harness or Bear-infra failure: podman missing, disk/digest preflight, base image build, empty capture (libexec/INTERCEPT_LIBDIR mismatch), missing host `cdb-compare`, or missing `jq` (oracle targets). |
+| ERROR        | 3    | Harness or Bear-infra failure: podman missing, disk/digest preflight, base image build, empty capture (libexec/INTERCEPT_LIBDIR mismatch), an oracle that matched 0 TUs (nothing compared), or missing host `cdb-compare`. |
 
 Run artifacts land under `results/<target>/<label>/` (git-ignored). Goldens
-live under `goldens/<target>/` and are tracked; the curl allow-list lives under
-`targets/curl/oracle-allowlist.txt` and is tracked.
+live under `goldens/<target>/` and are tracked.
 
 ## Reblessing the golden (dogfood-golden-rebless)
 
@@ -147,35 +141,36 @@ in coverage, so the result splits in two:
   build target does not actually compile), while Bear records what the build
   really ran. Extras are *logged for review, never a failure*. On the pinned
   build there are 0 Bear-only and ~156 CMake-only extras.
-- **The gate** (`differing`): TUs matched on both sides whose flags differ.
-  After the allow-list (below) suppresses the known-benign differences, the gate
-  passes iff nothing survives.
+- **The gate** (`differing`): TUs matched on both sides whose flags differ after
+  normalization. The gate passes iff this set is empty.
 
-The full breakdown is written to `results/curl/<label>/oracle-report.json`
-(`extras` and `survivors` arrays), with the intermediate normalized databases
-and the raw comparator output alongside it.
+The comparison is one `cdb-compare` invocation (no jq, no allow-list file):
 
-### Maintaining the allow-list (dogfood-divergence-report)
-
-`targets/curl/oracle-allowlist.txt` is the committed, documented allow-list. It
-suppresses KNOWN argument-level differences on matched TUs. Today its only
-entries are the depfile-generation flag group (`-MD`, `-MT <obj>`, `-MF
-<obj>.d`): the real compile carries these, CMake's configure-time database
-omits them, and they affect only the `.d` dependency side-file, never the
-object. The grammar is two rule kinds, one per line:
-
-```
-flag <TOKEN>           # drop the literal token (e.g. -MD)
-flag-with-arg <TOKEN>  # drop the token and the one argument it consumes
+```sh
+cdb-compare compare --intersection --substitute-compiler cc \
+    --output-from-o --drop-dependency-flags  <bear.json> <cmake.json>
 ```
 
-Rules are applied *symmetrically* to both sides of a differing entry, so a rule
-can only ever cancel its own exact pattern - it cannot hide a real extra flag
-that appears on one side alone. Keep the list small: it is for benign
-*argument* noise on matched TUs, NOT for coverage gaps (those are the extras
-report). When the oracle gate fails, inspect `oracle-report.json`'s `survivors`
-first; add a rule only when the difference is genuinely benign, and document
-*why* in the allow-list header next to the rule.
+- `--output-from-o` matches TUs by source file plus absolute object path
+  (`directory` + the `-o` argument), so the two producers' differently encoded
+  `output` fields align and a source compiled into several targets stays
+  distinct.
+- `--drop-dependency-flags` removes the `-M*` dependency-file group (`-MD`,
+  `-MMD`, `-MP`, and the arg-consuming `-MF`/`-MT`/`-MQ`/`-MJ`). On curl this is
+  the entire matched-but-differing set: the real compile carries them, CMake's
+  configure-time export omits them, and they touch only the `.d` side-file,
+  never the object. This is a tested operation of the comparator, not a shell
+  heuristic.
+- `--intersection` makes the exit code gate on `differing` only; extras are
+  advisory. The harness additionally fails the run if 0 TUs matched (a vacuous
+  comparison that validated nothing).
+
+The comparator's report (extras lists plus a `summary:` line) is written to
+`results/curl/<label>/oracle-report.txt`, with a machine-readable
+`oracle-compare.json` alongside. When the gate fails, inspect the
+`matched but differing` section. If a future oracle target shows a *different*
+benign argument difference, extend `cdb-compare` (a tested normalization rule),
+not a shell allow-list - the comparison stays in one place.
 
 ## What the harness does NOT do
 

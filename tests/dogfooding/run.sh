@@ -9,7 +9,7 @@
 # Two validation modes, selected per-target by VALIDATION in config.env:
 #   golden  (zlib, Stage 2): gate the capture against a committed golden CDB.
 #   oracle  (curl, Stage 3): gate the capture against the database CMake itself
-#           emits, on the intersection of translation units, with an allow-list
+#           emits, on the intersection of translation units, via cdb-compare
 #           (dogfood-oracle-cmake, dogfood-divergence-report).
 #
 # Usage:
@@ -120,13 +120,10 @@ if [ ! -x "$CDB_COMPARE" ]; then
     finish ERROR "host cdb-compare binary missing"
 fi
 
-# The oracle path post-processes the comparator's JSON (bucket extras, apply the
-# allow-list) with jq, and --rebless has no meaning without a golden.
-if [ "$VALIDATION" = "oracle" ]; then
-    require_jq
-    if [ "$REBLESS" -eq 1 ]; then
-        finish ERROR "--rebless applies only to golden targets; $TARGET validates against the CMake oracle"
-    fi
+# --rebless has no meaning for an oracle target (there is no committed golden;
+# the reference is CMake's own database, regenerated each run).
+if [ "$VALIDATION" = "oracle" ] && [ "$REBLESS" -eq 1 ]; then
+    finish ERROR "--rebless applies only to golden targets; $TARGET validates against the CMake oracle"
 fi
 
 # === STEP 2: BUILD BASE IMAGE (dogfood-run-containerized) =====================
@@ -267,58 +264,58 @@ fi
 
 if [ "$VALIDATION" = "oracle" ]; then
     # --- oracle gate (dogfood-oracle-cmake, dogfood-divergence-report) -------
-    # Match Bear's capture against CMake's database on the intersection of
-    # translation units, identified by (file, absolute-output). The host
-    # cdb-compare does the matching and emits its three-set JSON; jq then
-    # buckets the only_in_* extras (logged, never a failure) and applies the
-    # committed allow-list to the differing set (the gate).
-    ALLOWLIST="$TARGET_DIR/oracle-allowlist.txt"
-    [ -f "$ALLOWLIST" ] || finish ERROR "missing oracle allow-list at $ALLOWLIST"
+    # cdb-compare does the whole comparison; no jq, no allow-list file:
+    #   --output-from-o         match TUs by absolute object path (directory + the
+    #                           -o argument), so the two producers' differing
+    #                           `output` encodings align and a source compiled
+    #                           into several targets stays distinct.
+    #   --drop-dependency-flags drop the benign `-M*` depfile flags the make-time
+    #                           command carries but CMake's configure-time export
+    #                           omits (the only difference on matched TUs).
+    #   --substitute-compiler   absorb any compiler-driver path difference.
+    #   --intersection          gate on matched-but-differing TUs only; entries on
+    #                           just one side are advisory extras (the divergence
+    #                           report), never a failure.
+    # Exit 0 = matched TUs equivalent (PASS); 1 = real divergence OR a load error.
+    REPORT="$RESULTS_DIR/oracle-report.txt"
+    REPORT_JSON="$RESULTS_DIR/oracle-compare.json"
+    NORM_FLAGS="--substitute-compiler cc --output-from-o --drop-dependency-flags"
 
-    BEAR_NORM="$RESULTS_DIR/bear.norm.json"
-    ORACLE_NORM="$RESULTS_DIR/oracle.norm.json"
-    CMP_JSON="$RESULTS_DIR/oracle-compare.json"
-    REPORT="$RESULTS_DIR/oracle-report.json"
-
-    info "normalizing output fields to absolute object paths (build dir $BUILD_DIR)"
-    oracle_normalize_output bear  "$BUILD_DIR" "$FRESH"  "$BEAR_NORM"   || finish ERROR "jq normalize of Bear DB failed"
-    oracle_normalize_output cmake "$BUILD_DIR" "$ORACLE" "$ORACLE_NORM" || finish ERROR "jq normalize of CMake DB failed"
-
-    # Bear is side A, CMake is side B; substitute-compiler cc absorbs the
-    # compiler-driver path difference between the make-time command and CMake's
-    # configure-time command. Non-zero exit here just means "not equivalent",
-    # which is expected (the depfile flags differ); the gate is the allow-list.
-    info "comparing matched TUs (cdb-compare, substitute-compiler cc)"
-    CMP_ERR="$RESULTS_DIR/oracle-compare.stderr"
-    "$CDB_COMPARE" compare --substitute-compiler cc --format json "$BEAR_NORM" "$ORACLE_NORM" >"$CMP_JSON" 2>"$CMP_ERR" || true
-    if ! grep -q 'differing' "$CMP_JSON" 2>/dev/null; then
-        finish ERROR "cdb-compare did not produce a report (see $CMP_JSON and $CMP_ERR)"
-    fi
-
-    info "applying allow-list and bucketing extras"
+    info "comparing Bear vs CMake on the TU intersection (cdb-compare)"
     set +e
-    SURVIVORS="$(oracle_report "$CMP_JSON" "$ALLOWLIST" "$REPORT")"
+    # shellcheck disable=SC2086  # NORM_FLAGS is a deliberate word list
+    "$CDB_COMPARE" compare --intersection $NORM_FLAGS "$FRESH" "$ORACLE" >"$REPORT" 2>&1
     ORACLE_RC=$?
+    # Archive a machine-readable copy of the three-set report (same normalization).
+    # shellcheck disable=SC2086
+    "$CDB_COMPARE" compare $NORM_FLAGS --format json "$FRESH" "$ORACLE" >"$REPORT_JSON" 2>/dev/null
     set -e
 
-    BEAR_ONLY="$(jq '.bear_only' "$REPORT")"
-    CMAKE_ONLY="$(jq '.cmake_only' "$REPORT")"
-    DIFF_TOTAL="$(jq '.differing_total' "$REPORT")"
-    info "extras (logged, not a gate): ${BEAR_ONLY} Bear-only, ${CMAKE_ONLY} CMake-only TUs"
-    info "matched TUs differing: ${DIFF_TOTAL}; after allow-list, survivors: ${SURVIVORS}"
-    info "full divergence report: $REPORT"
-
-    if [ "$ORACLE_RC" -eq 0 ]; then
-        finish PASS "matched TUs equivalent under the allow-list (oracle: ${DIFF_TOTAL} benign diffs suppressed; ${BEAR_ONLY}+${CMAKE_ONLY} extras logged)"
-    elif [ "$ORACLE_RC" -eq 1 ]; then
-        err "oracle mismatch: ${SURVIVORS} matched TUs differ beyond the allow-list"
-        err "survivors detailed in $REPORT (.survivors); add a documented allow-list rule only if the difference is genuinely benign"
-        finish FAIL "oracle mismatch: ${SURVIVORS} matched TUs diverge after the allow-list - see $REPORT"
-    else
-        # oracle_report could not produce a valid survivor count (jq write/parse
-        # failure): an infra problem, not a real mismatch.
-        finish ERROR "oracle report generation failed (jq/arithmetic); see $REPORT"
+    # The `summary:` line is printed only when cdb-compare ran to completion in
+    # --intersection mode; its absence means a load/parse error (cdb-compare exits
+    # 1 for that too), so treat a missing summary as an infra ERROR, not a FAIL.
+    SUMMARY="$(sed -n 's/^summary: //p' "$REPORT")"
+    if [ -z "$SUMMARY" ]; then
+        finish ERROR "cdb-compare did not produce an oracle comparison; see $REPORT"
     fi
+    info "oracle: $SUMMARY"
+    info "full divergence report: $REPORT (machine-readable: $REPORT_JSON)"
+
+    # Non-vacuity / coverage floor: a zero-matched intersection compared nothing
+    # (matching broken, or the inputs share no TUs) and must not pass. cdb-compare
+    # is slated to enforce this itself; until then the harness refuses it.
+    MATCHED="$(printf '%s' "$SUMMARY" | sed -n 's/^matched=\([0-9]*\) .*/\1/p')"
+    if [ -z "$MATCHED" ] || [ "$MATCHED" -eq 0 ]; then
+        finish ERROR "oracle matched 0 translation units - nothing was compared (matching broken?); see $REPORT"
+    fi
+
+    case "$ORACLE_RC" in
+        0) finish PASS "matched TUs equivalent to the CMake oracle ($SUMMARY)" ;;
+        1) err "oracle mismatch: matched TUs diverge from CMake's database"
+           err "see the 'matched but differing' section of $REPORT (and $REPORT_JSON)"
+           finish FAIL "oracle mismatch - matched TUs differ from the CMake oracle; see $REPORT" ;;
+        *) finish ERROR "cdb-compare failed during the oracle comparison (exit $ORACLE_RC); see $REPORT" ;;
+    esac
 fi
 
 # === STEP 6 (golden): GATE (dogfood-golden-regression) =======================

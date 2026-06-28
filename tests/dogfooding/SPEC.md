@@ -97,11 +97,11 @@ reports them as distinct outcomes. A target build that fails for its own reasons
 is "inconclusive", not a Bear regression.
 
 Implementation: four outcomes with distinct exit codes -
-`PASS=0`, `FAIL=1` (golden regression or oracle mismatch after the allow-list),
+`PASS=0`, `FAIL=1` (golden regression, or oracle matched-TU divergence),
 `INCONCLUSIVE=2` (target build failed for its own reasons: target image build,
 configure/make), `ERROR=3` (harness or Bear-infra: podman missing, disk/digest
-preflight, base build, empty capture, missing host `cdb-compare`/`jq`). `run.sh`
-prints one final `OUTCOME:` status line.
+preflight, base build, empty capture, an oracle that matched 0 TUs, missing host
+`cdb-compare`). `run.sh` prints one final `OUTCOME:` status line.
 
 ## dogfood-oracle-cmake (Stage 3)
 
@@ -125,34 +125,38 @@ NOT wrapped by Bear (it is not a compile); only `cmake --build` is, so Bear's
 capture lands at `/out/compile_commands.json` and CMake's reference database is
 copied to `/out/oracle.json`. Both are pulled out with `podman cp`.
 
-The comparison reuses the host `cdb-compare` as-is. To match by translation unit
-correctly, both databases' `output` field is first normalized to the ABSOLUTE
-object path (Bear's `output` is relative to its `directory`; CMake's is relative
-to the top-level `BUILD_DIR`), so matching is effectively by source file plus
-the object it produces. Stripping `output` entirely was rejected: a source curl
-compiles into several targets (shared lib, static lib, tool) would collapse onto
-one key and be paired against the wrong target's flags. `cdb-compare compare
---substitute-compiler cc --format json` then produces the three-set report;
-`only_in_a`/`only_in_b` are the extras (logged), `differing` is the gate.
+The comparison is done entirely by the host `cdb-compare` - no jq, no allow-list
+file. Three normalizations plus a gating flag make it correct:
+`--output-from-o` rewrites each `output` to the absolute object path derived
+from the entry's `-o` argument joined with its `directory`, so TUs match by
+source file plus the object they produce. That key is identical across producers
+even though Bear encodes `output` relative to `directory` and CMake relative to
+the build root, and a source compiled into several targets (shared lib, tool)
+stays distinct rather than collapsing onto one key. `--drop-dependency-flags`
+removes the `-M*` depfile group. `--substitute-compiler cc` absorbs any
+compiler-driver path difference. `--intersection` then gates on the `differing`
+set alone, reporting `only_in_a`/`only_in_b` as advisory extras. Exit 0 = matched
+TUs equivalent (PASS); exit 1 = a real matched-TU divergence (FAIL). The harness
+also refuses a vacuous comparison: if 0 TUs matched, the run is an ERROR, not a
+silent pass.
 
 ## dogfood-divergence-report (Stage 3)
 
 The Bear-only and CMake-only "extras" are reported for review, never a failure.
-A small, committed, documented allow-list may suppress KNOWN argument-level
-differences on matched TUs; the gate passes iff `differing` minus the allow-
-listed entries is empty. The allow-list is deliberately NOT used to hide
-coverage gaps (those are the extras), so it stays small.
+The one known-benign argument difference on matched TUs - the dependency-file
+generation flags (`-MD`/`-MMD`/`-MP` and the argument-consuming
+`-MF`/`-MT`/`-MQ`/`-MJ`) - is removed by `cdb-compare --drop-dependency-flags`
+before the gate. These flags only control the build system's `.d` side-file,
+never the object or how a Clang tool parses the TU, so dropping them is a tested,
+documented operation of the comparator rather than a hand-maintained shell
+allow-list. On the pinned curl build this group is the ENTIRE matched-but-
+differing set (221/221 TUs); with it dropped, `differing` is empty and the gate
+passes. `run.sh` writes the comparator's full report (its extras lists plus a
+`summary:` line) to `results/<target>/<label>/oracle-report.txt`, with a
+machine-readable `oracle-compare.json` alongside. There is no rebless for oracle
+targets - the oracle is self-renewing, so `--rebless` is rejected for them.
 
-Implementation: `targets/curl/oracle-allowlist.txt` is the committed allow-list.
-Its only entries are the depfile-generation flag group - `flag -MD`,
-`flag-with-arg -MT`, `flag-with-arg -MF` - which the real make-time compile
-carries but CMake's configure-time `compile_commands.json` omits. They affect
-only the `.d` dependency side-file, never the object. On the pinned curl build
-this group is the ENTIRE matched-but-differing set (221/221 TUs); with the
-allow-list the surviving set is empty. The allow-list is applied SYMMETRICALLY
-to both sides of each differing entry (drop the listed tokens, then compare for
-equality), so a rule can only ever cancel exactly its own pattern; a real extra
-flag on one side alone survives and fails the gate. `run.sh` writes the full
-divergence report (extras + survivors) to `results/<target>/<label>/
-oracle-report.json`. There is no rebless for oracle targets - the oracle is
-self-renewing, so `--rebless` is rejected for them.
+If a future oracle target exhibits a different benign argument difference that
+`--drop-dependency-flags` does not cover, extend the comparator with a tested
+rule rather than reintroducing a shell allow-list - the comparison logic stays
+in one unit-tested place.
