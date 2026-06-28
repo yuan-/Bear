@@ -1,0 +1,29 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# zlib target image (Stage 2). Layers on the locally-built dogfooding base
+# (which carries Bear-under-test + cdb-compare) and installs zlib's own build
+# dependencies plus the pinned, sha256-verified source at the fixed path /src
+# (dogfood-fixed-paths). The actual 'make' is wrapped by Bear at 'podman run'
+# time, NOT here, so the image build stays free of any Bear invocation.
+
+ARG BASE_TAG
+FROM ${BASE_TAG}
+
+ARG ZLIB_URL
+ARG ZLIB_SHA256
+ARG SRC_DIR=/src
+
+# Target build deps: gcc + make to build zlib, curl + tar to fetch and unpack.
+RUN dnf -y install gcc make curl tar gzip \
+    && dnf -y clean all \
+    && rm -rf /var/cache/dnf
+
+# Fetch, verify by sha256, extract to the fixed SRC_DIR. A checksum mismatch
+# fails the build (caught by the harness as INCONCLUSIVE: target infra).
+RUN mkdir -p "${SRC_DIR}" \
+    && curl --proto '=https' --tlsv1.2 -fsSL -o /tmp/zlib.tar.gz "${ZLIB_URL}" \
+    && echo "${ZLIB_SHA256}  /tmp/zlib.tar.gz" | sha256sum -c - \
+    && tar -xzf /tmp/zlib.tar.gz -C "${SRC_DIR}" --strip-components=1 \
+    && rm -f /tmp/zlib.tar.gz
+
+WORKDIR ${SRC_DIR}

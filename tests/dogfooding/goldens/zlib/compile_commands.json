@@ -1,0 +1,582 @@
+[
+  {
+    "directory": "/src",
+    "file": "adler32.c",
+    "arguments": [
+      "/usr/sbin/gcc",
+      "-O3",
+      "-DNDEBUG",
+      "-D_LARGEFILE64_SOURCE=1",
+      "-DHAVE_HIDDEN",
+      "-c",
+      "-o",
+      "adler32.o",
+      "adler32.c"
+    ],
+    "output": "adler32.o"
+  },
+  {
+    "directory": "/src",
+    "file": "adler32.c",
+    "arguments": [
+      "/usr/sbin/gcc",
+      "-O3",
+      "-DNDEBUG",
+      "-fPIC",
+      "-D_LARGEFILE64_SOURCE=1",
+      "-DHAVE_HIDDEN",
+      "-DPIC",
+      "-c",
+      "-o",
+      "objs/adler32.o",
+      "adler32.c"
+    ],
+    "output": "objs/adler32.o"
+  },
+  {
+    "directory": "/src",
+    "file": "compress.c",
+    "arguments": [
+      "/usr/sbin/gcc",
+      "-O3",
+      "-DNDEBUG",
+      "-D_LARGEFILE64_SOURCE=1",
+      "-DHAVE_HIDDEN",
+      "-c",
+      "-o",
+      "compress.o",
+      "compress.c"
+    ],
+    "output": "compress.o"
+  },
+  {
+    "directory": "/src",
+    "file": "compress.c",
+    "arguments": [
+      "/usr/sbin/gcc",
+      "-O3",
+      "-DNDEBUG",
+      "-fPIC",
+      "-D_LARGEFILE64_SOURCE=1",
+      "-DHAVE_HIDDEN",
+      "-DPIC",
+      "-c",
+      "-o",
+      "objs/compress.o",
+      "compress.c"
+    ],
+    "output": "objs/compress.o"
+  },
+  {
+    "directory": "/src",
+    "file": "crc32.c",
+    "arguments": [
+      "/usr/sbin/gcc",
+      "-O3",
+      "-DNDEBUG",
+      "-D_LARGEFILE64_SOURCE=1",
+      "-DHAVE_HIDDEN",
+      "-c",
+      "-o",
+      "crc32.o",
+      "crc32.c"
+    ],
+    "output": "crc32.o"
+  },
+  {
+    "directory": "/src",
+    "file": "crc32.c",
+    "arguments": [
+      "/usr/sbin/gcc",
+      "-O3",
+      "-DNDEBUG",
+      "-fPIC",
+      "-D_LARGEFILE64_SOURCE=1",
+      "-DHAVE_HIDDEN",
+      "-DPIC",
+      "-c",
+      "-o",
+      "objs/crc32.o",
+      "crc32.c"
+    ],
+    "output": "objs/crc32.o"
+  },
+  {
+    "directory": "/src",
+    "file": "deflate.c",
+    "arguments": [
+      "/usr/sbin/gcc",
+      "-O3",
+      "-DNDEBUG",
+      "-D_LARGEFILE64_SOURCE=1",
+      "-DHAVE_HIDDEN",
+      "-c",
+      "-o",
+      "deflate.o",
+      "deflate.c"
+    ],
+    "output": "deflate.o"
+  },
+  {
+    "directory": "/src",
+    "file": "deflate.c",
+    "arguments": [
+      "/usr/sbin/gcc",
+      "-O3",
+      "-DNDEBUG",
+      "-fPIC",
+      "-D_LARGEFILE64_SOURCE=1",
+      "-DHAVE_HIDDEN",
+      "-DPIC",
+      "-c",
+      "-o",
+      "objs/deflate.o",
+      "deflate.c"
+    ],
+    "output": "objs/deflate.o"
+  },
+  {
+    "directory": "/src",
+    "file": "gzclose.c",
+    "arguments": [
+      "/usr/sbin/gcc",
+      "-O3",
+      "-DNDEBUG",
+      "-D_LARGEFILE64_SOURCE=1",
+      "-DHAVE_HIDDEN",
+      "-c",
+      "-o",
+      "gzclose.o",
+      "gzclose.c"
+    ],
+    "output": "gzclose.o"
+  },
+  {
+    "directory": "/src",
+    "file": "gzclose.c",
+    "arguments": [
+      "/usr/sbin/gcc",
+      "-O3",
+      "-DNDEBUG",
+      "-fPIC",
+      "-D_LARGEFILE64_SOURCE=1",
+      "-DHAVE_HIDDEN",
+      "-DPIC",
+      "-c",
+      "-o",
+      "objs/gzclose.o",
+      "gzclose.c"
+    ],
+    "output": "objs/gzclose.o"
+  },
+  {
+    "directory": "/src",
+    "file": "gzlib.c",
+    "arguments": [
+      "/usr/sbin/gcc",
+      "-O3",
+      "-DNDEBUG",
+      "-D_LARGEFILE64_SOURCE=1",
+      "-DHAVE_HIDDEN",
+      "-c",
+      "-o",
+      "gzlib.o",
+      "gzlib.c"
+    ],
+    "output": "gzlib.o"
+  },
+  {
+    "directory": "/src",
+    "file": "gzlib.c",
+    "arguments": [
+      "/usr/sbin/gcc",
+      "-O3",
+      "-DNDEBUG",
+      "-fPIC",
+      "-D_LARGEFILE64_SOURCE=1",
+      "-DHAVE_HIDDEN",
+      "-DPIC",
+      "-c",
+      "-o",
+      "objs/gzlib.o",
+      "gzlib.c"
+    ],
+    "output": "objs/gzlib.o"
+  },
+  {
+    "directory": "/src",
+    "file": "gzread.c",
+    "arguments": [
+      "/usr/sbin/gcc",
+      "-O3",
+      "-DNDEBUG",
+      "-D_LARGEFILE64_SOURCE=1",
+      "-DHAVE_HIDDEN",
+      "-c",
+      "-o",
+      "gzread.o",
+      "gzread.c"
+    ],
+    "output": "gzread.o"
+  },
+  {
+    "directory": "/src",
+    "file": "gzread.c",
+    "arguments": [
+      "/usr/sbin/gcc",
+      "-O3",
+      "-DNDEBUG",
+      "-fPIC",
+      "-D_LARGEFILE64_SOURCE=1",
+      "-DHAVE_HIDDEN",
+      "-DPIC",
+      "-c",
+      "-o",
+      "objs/gzread.o",
+      "gzread.c"
+    ],
+    "output": "objs/gzread.o"
+  },
+  {
+    "directory": "/src",
+    "file": "gzwrite.c",
+    "arguments": [
+      "/usr/sbin/gcc",
+      "-O3",
+      "-DNDEBUG",
+      "-D_LARGEFILE64_SOURCE=1",
+      "-DHAVE_HIDDEN",
+      "-c",
+      "-o",
+      "gzwrite.o",
+      "gzwrite.c"
+    ],
+    "output": "gzwrite.o"
+  },
+  {
+    "directory": "/src",
+    "file": "gzwrite.c",
+    "arguments": [
+      "/usr/sbin/gcc",
+      "-O3",
+      "-DNDEBUG",
+      "-fPIC",
+      "-D_LARGEFILE64_SOURCE=1",
+      "-DHAVE_HIDDEN",
+      "-DPIC",
+      "-c",
+      "-o",
+      "objs/gzwrite.o",
+      "gzwrite.c"
+    ],
+    "output": "objs/gzwrite.o"
+  },
+  {
+    "directory": "/src",
+    "file": "infback.c",
+    "arguments": [
+      "/usr/sbin/gcc",
+      "-O3",
+      "-DNDEBUG",
+      "-D_LARGEFILE64_SOURCE=1",
+      "-DHAVE_HIDDEN",
+      "-c",
+      "-o",
+      "infback.o",
+      "infback.c"
+    ],
+    "output": "infback.o"
+  },
+  {
+    "directory": "/src",
+    "file": "infback.c",
+    "arguments": [
+      "/usr/sbin/gcc",
+      "-O3",
+      "-DNDEBUG",
+      "-fPIC",
+      "-D_LARGEFILE64_SOURCE=1",
+      "-DHAVE_HIDDEN",
+      "-DPIC",
+      "-c",
+      "-o",
+      "objs/infback.o",
+      "infback.c"
+    ],
+    "output": "objs/infback.o"
+  },
+  {
+    "directory": "/src",
+    "file": "inffast.c",
+    "arguments": [
+      "/usr/sbin/gcc",
+      "-O3",
+      "-DNDEBUG",
+      "-D_LARGEFILE64_SOURCE=1",
+      "-DHAVE_HIDDEN",
+      "-c",
+      "-o",
+      "inffast.o",
+      "inffast.c"
+    ],
+    "output": "inffast.o"
+  },
+  {
+    "directory": "/src",
+    "file": "inffast.c",
+    "arguments": [
+      "/usr/sbin/gcc",
+      "-O3",
+      "-DNDEBUG",
+      "-fPIC",
+      "-D_LARGEFILE64_SOURCE=1",
+      "-DHAVE_HIDDEN",
+      "-DPIC",
+      "-c",
+      "-o",
+      "objs/inffast.o",
+      "inffast.c"
+    ],
+    "output": "objs/inffast.o"
+  },
+  {
+    "directory": "/src",
+    "file": "inflate.c",
+    "arguments": [
+      "/usr/sbin/gcc",
+      "-O3",
+      "-DNDEBUG",
+      "-D_LARGEFILE64_SOURCE=1",
+      "-DHAVE_HIDDEN",
+      "-c",
+      "-o",
+      "inflate.o",
+      "inflate.c"
+    ],
+    "output": "inflate.o"
+  },
+  {
+    "directory": "/src",
+    "file": "inflate.c",
+    "arguments": [
+      "/usr/sbin/gcc",
+      "-O3",
+      "-DNDEBUG",
+      "-fPIC",
+      "-D_LARGEFILE64_SOURCE=1",
+      "-DHAVE_HIDDEN",
+      "-DPIC",
+      "-c",
+      "-o",
+      "objs/inflate.o",
+      "inflate.c"
+    ],
+    "output": "objs/inflate.o"
+  },
+  {
+    "directory": "/src",
+    "file": "inftrees.c",
+    "arguments": [
+      "/usr/sbin/gcc",
+      "-O3",
+      "-DNDEBUG",
+      "-D_LARGEFILE64_SOURCE=1",
+      "-DHAVE_HIDDEN",
+      "-c",
+      "-o",
+      "inftrees.o",
+      "inftrees.c"
+    ],
+    "output": "inftrees.o"
+  },
+  {
+    "directory": "/src",
+    "file": "inftrees.c",
+    "arguments": [
+      "/usr/sbin/gcc",
+      "-O3",
+      "-DNDEBUG",
+      "-fPIC",
+      "-D_LARGEFILE64_SOURCE=1",
+      "-DHAVE_HIDDEN",
+      "-DPIC",
+      "-c",
+      "-o",
+      "objs/inftrees.o",
+      "inftrees.c"
+    ],
+    "output": "objs/inftrees.o"
+  },
+  {
+    "directory": "/src",
+    "file": "test/example.c",
+    "arguments": [
+      "/usr/sbin/gcc",
+      "-O3",
+      "-DNDEBUG",
+      "-D_LARGEFILE64_SOURCE=1",
+      "-DHAVE_HIDDEN",
+      "-I.",
+      "-c",
+      "-o",
+      "example.o",
+      "test/example.c"
+    ],
+    "output": "example.o"
+  },
+  {
+    "directory": "/src",
+    "file": "test/example.c",
+    "arguments": [
+      "/usr/sbin/gcc",
+      "-O3",
+      "-DNDEBUG",
+      "-D_LARGEFILE64_SOURCE=1",
+      "-DHAVE_HIDDEN",
+      "-I.",
+      "-D_FILE_OFFSET_BITS=64",
+      "-c",
+      "-o",
+      "example64.o",
+      "test/example.c"
+    ],
+    "output": "example64.o"
+  },
+  {
+    "directory": "/src",
+    "file": "test/minigzip.c",
+    "arguments": [
+      "/usr/sbin/gcc",
+      "-O3",
+      "-DNDEBUG",
+      "-D_LARGEFILE64_SOURCE=1",
+      "-DHAVE_HIDDEN",
+      "-I.",
+      "-c",
+      "-o",
+      "minigzip.o",
+      "test/minigzip.c"
+    ],
+    "output": "minigzip.o"
+  },
+  {
+    "directory": "/src",
+    "file": "test/minigzip.c",
+    "arguments": [
+      "/usr/sbin/gcc",
+      "-O3",
+      "-DNDEBUG",
+      "-D_LARGEFILE64_SOURCE=1",
+      "-DHAVE_HIDDEN",
+      "-I.",
+      "-D_FILE_OFFSET_BITS=64",
+      "-c",
+      "-o",
+      "minigzip64.o",
+      "test/minigzip.c"
+    ],
+    "output": "minigzip64.o"
+  },
+  {
+    "directory": "/src",
+    "file": "trees.c",
+    "arguments": [
+      "/usr/sbin/gcc",
+      "-O3",
+      "-DNDEBUG",
+      "-fPIC",
+      "-D_LARGEFILE64_SOURCE=1",
+      "-DHAVE_HIDDEN",
+      "-DPIC",
+      "-c",
+      "-o",
+      "objs/trees.o",
+      "trees.c"
+    ],
+    "output": "objs/trees.o"
+  },
+  {
+    "directory": "/src",
+    "file": "trees.c",
+    "arguments": [
+      "/usr/sbin/gcc",
+      "-O3",
+      "-DNDEBUG",
+      "-D_LARGEFILE64_SOURCE=1",
+      "-DHAVE_HIDDEN",
+      "-c",
+      "-o",
+      "trees.o",
+      "trees.c"
+    ],
+    "output": "trees.o"
+  },
+  {
+    "directory": "/src",
+    "file": "uncompr.c",
+    "arguments": [
+      "/usr/sbin/gcc",
+      "-O3",
+      "-DNDEBUG",
+      "-fPIC",
+      "-D_LARGEFILE64_SOURCE=1",
+      "-DHAVE_HIDDEN",
+      "-DPIC",
+      "-c",
+      "-o",
+      "objs/uncompr.o",
+      "uncompr.c"
+    ],
+    "output": "objs/uncompr.o"
+  },
+  {
+    "directory": "/src",
+    "file": "uncompr.c",
+    "arguments": [
+      "/usr/sbin/gcc",
+      "-O3",
+      "-DNDEBUG",
+      "-D_LARGEFILE64_SOURCE=1",
+      "-DHAVE_HIDDEN",
+      "-c",
+      "-o",
+      "uncompr.o",
+      "uncompr.c"
+    ],
+    "output": "uncompr.o"
+  },
+  {
+    "directory": "/src",
+    "file": "zutil.c",
+    "arguments": [
+      "/usr/sbin/gcc",
+      "-O3",
+      "-DNDEBUG",
+      "-fPIC",
+      "-D_LARGEFILE64_SOURCE=1",
+      "-DHAVE_HIDDEN",
+      "-DPIC",
+      "-c",
+      "-o",
+      "objs/zutil.o",
+      "zutil.c"
+    ],
+    "output": "objs/zutil.o"
+  },
+  {
+    "directory": "/src",
+    "file": "zutil.c",
+    "arguments": [
+      "/usr/sbin/gcc",
+      "-O3",
+      "-DNDEBUG",
+      "-D_LARGEFILE64_SOURCE=1",
+      "-DHAVE_HIDDEN",
+      "-c",
+      "-o",
+      "zutil.o",
+      "zutil.c"
+    ],
+    "output": "zutil.o"
+  }
+]

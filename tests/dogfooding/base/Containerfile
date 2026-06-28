@@ -1,0 +1,55 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Base image for the dogfooding harness (Stage 2). Carries the Bear-under-test
+# installed as a real release install (correct INTERCEPT_LIBDIR layout) plus
+# the cdb-compare binary. Built from a 'git archive HEAD' context so only
+# committed files reach the image (dogfood-run-containerized: the repo working
+# tree and the devcontainer image stay unmodified).
+#
+# Multi-stage: the builder carries the Rust toolchain; the final stage does
+# not (no toolchain in the shipped base, per feasibility.md section 7).
+
+# ARG must precede the first FROM so it can parameterize the base image; both
+# stages reference the same pinned digest.
+ARG BASE_IMAGE
+
+FROM ${BASE_IMAGE} AS builder
+
+ENV RUSTUP_HOME=/root/.rustup \
+    CARGO_HOME=/root/.cargo \
+    PATH=/root/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# Build deps: c-development for the cc toolchain the cc-crate/preload link
+# needs, lld because the ELF version script uses multiple version tags that
+# GNU ld rejects (lld is required on Linux per the repo host requirements),
+# curl for the rustup bootstrap. rustup gives a known >= 1.85 toolchain for
+# the Rust 2024 edition regardless of what fedora's packaged rust happens to
+# be (mirrors the devcontainer, which also bootstraps via rustup).
+RUN dnf -y install curl ca-certificates lld \
+    && dnf -y group install c-development \
+    && dnf -y clean all \
+    && rm -rf /var/cache/dnf \
+    && curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+        | sh -s -- -y --profile minimal --default-toolchain stable
+
+WORKDIR /work
+COPY . /work
+
+# Build the workspace release binaries (Bear) and the comparator, then install
+# Bear with the default INTERCEPT_LIBDIR=lib so bear-driver resolves
+# ../lib/libexec.so. PREFIX=/opt/bear gives the fixed layout
+# /opt/bear/bin/bear -> /opt/bear/libexec/bear/bin/bear-driver.
+RUN cargo build --release \
+    && cargo build --release -p bear-test-tools --bin cdb-compare \
+    && PREFIX=/opt/bear sh scripts/install.sh \
+    && install -m 755 target/release/cdb-compare /opt/bear/bin/cdb-compare
+
+FROM ${BASE_IMAGE} AS final
+
+# Copy the installed Bear tree and the comparator; no Rust toolchain here.
+COPY --from=builder /opt/bear /opt/bear
+
+ENV PATH=/opt/bear/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# Sanity: the entry script and driver must be present and runnable.
+RUN bear --version
