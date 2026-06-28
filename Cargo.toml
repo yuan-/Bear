@@ -2,6 +2,9 @@
 
 [workspace]
 members = ["crates/*", "build-support/*", "tests/*"]
+# tests/dogfooding is a POSIX-sh release-time harness, not a Rust crate, so it
+# has no Cargo.toml; exclude it from the tests/* glob.
+exclude = ["tests/dogfooding"]
 resolver = "3"
 
 [workspace.package]
