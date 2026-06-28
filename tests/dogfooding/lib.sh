@@ -108,6 +108,13 @@ preflight_image() {
 #   $3  build log path on the host
 #   $4  value for INJECT_CFLAGS passed into the container (empty for a normal
 #       run; a perturbing flag for the --inject-fault determinism self-test)
+#   $5  optional post-build snippet run INSIDE the same container AFTER the
+#       build, with `set +e` (so its own failing commands - e.g. replay's
+#       deliberate failing compiles - do not abort the script). Empty for a
+#       normal / determinism run, so those paths are byte-for-byte unchanged.
+#       Used by invariants mode (write /out/object_count) and replay mode (run
+#       the replay loop and write /out/replay_result), which both need the
+#       container's source/object tree still present before teardown.
 #
 # Reads from the caller's environment: TARGET_TAG, TARGET_BUILD_CMD.
 #
@@ -121,6 +128,7 @@ build_and_capture() {
     _bac_dest="$2"
     _bac_log="$3"
     _bac_inject="$4"
+    _bac_post="${5:-}"
 
     info "running real build in container $_bac_container"
     set +e
@@ -130,6 +138,12 @@ build_and_capture() {
         set -e
         mkdir -p /out
         $TARGET_BUILD_CMD
+        # Post-build step (invariants/replay) runs without set -e so its own
+        # expected failures do not abort the container; it writes result files
+        # under /out that the caller pulls out and gates on.
+        set +e
+        $_bac_post
+        :
     " >"$_bac_log" 2>&1
     _bac_rc=$?
     set -e

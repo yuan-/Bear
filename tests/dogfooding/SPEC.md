@@ -1,4 +1,4 @@
-# Dogfooding harness specification - Stages 2, 3, and 4 (determinism)
+# Dogfooding harness specification - Stages 2, 3, and 4
 
 These are the `dogfood-*` contracts the harness under `tests/dogfooding/`
 satisfies. They are contracts on the TEST HARNESS, not on Bear, so they
@@ -13,9 +13,11 @@ only in the container, never in the repo or the devcontainer image
 (feasibility.md Option C). A per-target `VALIDATION` selector in `config.env`
 chooses the per-target validation mode: `golden` (Stage 2, zlib) gates against a
 committed golden; `oracle` (Stage 3, curl) gates against the database CMake
-itself emits. A third, target-agnostic check is selected with the `--determinism`
-flag (Stage 4): it runs the same target twice and compares the two captures,
-independent of any golden or oracle.
+itself emits. Three target-agnostic Stage 4 checks are selected by flag and need no
+maintained baseline: `--determinism` (run the same target twice and compare the
+two captures), `--invariants` (assert structural invariants on one capture), and
+`--replay[=N]` (replay a sample of entries in their recorded directories). Each
+builds+captures once (twice for determinism) and skips the golden/oracle gate.
 
 ## dogfood-run-containerized
 
@@ -204,8 +206,106 @@ run and on determinism run 1 the value is empty, a no-op. `run.sh --determinism
 are verified for zlib and curl.
 
 Scope boundary: the DROPPED, DUPLICATED, and CORRUPTED-ENTRY faults from the
-Stage 4 plan are the `dogfood-invariants` check's territory (structural
-assertions on a single capture: every TU present, no empty `arguments`, no true
-duplicates), not determinism's. They are a separate Rust follow-up and are NOT
-implemented here. Determinism's own fault model is a divergent second build,
-which is exactly what `--inject-fault` exercises.
+Stage 4 plan are NOT determinism's territory - they belong to
+`dogfood-invariants` (dropped/duplicated/empty-arguments) and `dogfood-replay`
+(corrupted `directory`), both specified below. Determinism's own fault model is
+a divergent second build, which is exactly what `--inject-fault` exercises.
+
+## dogfood-invariants (Stage 4)
+
+For any target, the suite asserts structural invariants on Bear's single
+capture: every entry has non-empty `arguments`, there are no TRUE duplicates
+(identical `file` + `output` + normalized `arguments` - a source compiled into
+different outputs with different flags is legitimate, not a duplicate), and the
+entry count is within a configured tolerance of the number of object files the
+build produced. Each invariant is independently reported. No golden, no oracle,
+no maintained baseline.
+
+Implementation: `run.sh --invariants <target>` runs the shared preflight, image
+builds, and smoke, builds+captures once (`build_and_capture`), then gates on the
+exit code of one host `cdb-compare invariants --drop-dependency-flags
+--expected-objects <N> --tolerance <PCT> --format human <capture>`. The whole
+structural check - non-empty-arguments, no-true-duplicates, and the entry-count
+band - lives in the unit-tested comparator; the harness only supplies `<N>` and
+`<PCT>` and gates the exit code (no JSON parsed in shell). Exit 0 => PASS;
+exit 1 => FAIL (Bear produced a malformed CDB); a non-1 error or a build/infra
+failure maps to ERROR/INCONCLUSIVE via `build_and_capture`. The human report is
+saved to `results/<target>/<label>/invariants-report.txt`.
+
+The object count `<N>` is taken IN the container before teardown, by a
+per-target `OBJECT_COUNT_CMD` (config.env) written to `/out/object_count` and
+pulled out. The instrument is per-target because "objects produced" is not
+always "*.o files still on disk": curl's CMake leaves every object under
+`/build`, so the default `find $OBJECTS_DIR -name '*.o' | wc -l` is exact, but
+zlib's in-tree `make` compiles each library source twice (static + PIC) and
+DELETES the PIC objects under `objs/` at link time, so a post-build `find`
+undercounts ~1.8x (19 survive, 34 produced). zlib therefore overrides
+`OBJECT_COUNT_CMD` to count make's OWN dependency graph
+(`make -Bn | grep -oE -e '-o ...\.o' | sort -u | wc -l`) - a build-system-native,
+cleanup-independent, Bear-independent count of produced objects. `<PCT>` is the
+per-target `OBJECT_TOLERANCE_PCT` (10 for both): with the count instruments
+above, entries == objects exactly (zlib 34/34, curl 221/221), so 10% is mere
+headroom for an incidental build-system object and keeps the check sensitive to
+a real entry drop or duplication.
+
+## dogfood-replay (Stage 4)
+
+The suite takes a sample of Bear's entries and replays each recorded command in
+its recorded `directory` with `-fsyntax-only` appended, asserting the compiler
+accepts the recorded arguments. A command that fails to replay indicates a
+malformed entry (wrong cwd, missing or mangled flag). Sampling size is
+configurable. In a throwaway container a generated header may no longer exist,
+so a replay failure for a TU that depends on a missing input is *inconclusive*,
+not a Bear failure; the sampler preferentially selects TUs whose flags do not
+reference build-dir includes to keep replay meaningful.
+
+Implementation: `run.sh --replay[=N] <target>` (default N=20; also `--replay N`)
+runs the shared pipeline, builds+captures once, and replays INSIDE the build
+container as part of the same `podman run` - the recorded sources and generated
+headers exist there only before teardown. The replay loop is one POSIX function
+(`replay-loop.sh`) read into the in-container script; the in-image
+`/opt/bear/bin/cdb-compare sample <capture> --count N --build-dir <BUILD_DIR>`
+selects up to N replayable entries (build-dir-aware) and emits one shell-quoted
+replay line per entry (`directory` then argv). Each is replayed as
+`( cd "$dir" && "$@" -fsyntax-only )` and tallied: OK (compiler accepted the
+args), INCONCLUSIVE (the failure stderr matches a missing-file diagnostic - "No
+such file" / "file not found" / "not found" - a build-time input gone after
+teardown), or FAIL (any other failure, including a `directory` that does not
+exist - a corrupted-directory fault, caught before the compile by a `-d` test).
+The function writes its tally and any failing commands to `/out/replay_result`
+and its return code to `/out/replay_rc`, both pulled out and gated on without
+parsing JSON. `BUILD_DIR` comes from config.env (curl `/build`; zlib has no
+out-of-tree dir, so its `BUILD_DIR` is `/src`).
+
+Gate (non-vacuity, mirroring the oracle): any real FAIL => FAIL (a malformed
+entry); all OK with inconclusive allowed => PASS; EVERY sampled entry
+inconclusive (nothing actually verified) => INCONCLUSIVE (replay must not pass
+vacuously). On the pinned builds all 20 sampled entries replay OK for both zlib
+and curl (0 FAIL, 0 INCONCLUSIVE).
+
+## dogfood-injected-fault demonstration (Stage 4 exit criterion)
+
+The Stage 4 exit criterion requires the checks to demonstrably catch an injected
+fault - a dropped entry, a duplicated entry, and a corrupted `directory`. This
+is demonstrated WITHOUT a container by `selftest.sh` against tiny, committed,
+hand-written fault fixtures under `faults/` (so the fault is unambiguous and not
+the product of fragile in-shell JSON surgery on a real capture):
+
+- `faults/duplicate.json` - two byte-identical entries => `cdb-compare
+  invariants` FAILS its no-true-duplicates check.
+- `faults/empty-arguments.json` - an entry with `"arguments": []` => invariants
+  FAILS non-empty-arguments.
+- `faults/undercount.json` - 2 entries asserted against `--expected-objects 3
+  --tolerance 0` => invariants FAILS entry-count (the "dropped entry" fault).
+- `faults/bad-directory.json` - a valid entry whose `directory` does not exist
+  => the replay loop FAILS (the recorded compile can never run from where Bear
+  claims it did - the "corrupted directory" fault). `faults/tu/hello.c` is the
+  trivial TU it nominally compiles.
+
+`selftest.sh` runs the host `cdb-compare invariants` against the invariants
+fixtures and the SAME `replay-loop.sh` function (host-side) against the
+bad-directory fixture, asserts each check exits non-zero (the fault was caught),
+adds a control that an honest CDB passes (no false positive), and prints a clear
+pass/fail. It needs no container and no `jq`, so it is fast and is the
+demonstrable-fault-catching deliverable. It is invoked as
+`tests/dogfooding/selftest.sh`.

@@ -1,4 +1,4 @@
-# Bear dogfooding harness (Stages 2-3)
+# Bear dogfooding harness (Stages 2-4)
 
 A non-automated, release-time harness that runs Bear's *installed release*
 binaries against a real project at a pinned revision inside a throwaway
@@ -79,6 +79,18 @@ tests/dogfooding/run.sh --keep
 # (any target; skips the golden/oracle gate).
 tests/dogfooding/run.sh --determinism zlib
 tests/dogfooding/run.sh --determinism curl
+
+# Structural invariants on one capture (any target; skips the gate).
+tests/dogfooding/run.sh --invariants zlib
+tests/dogfooding/run.sh --invariants curl
+
+# Replay a sample of entries in their recorded directories (default 20;
+# --replay=N or --replay N to change the count).
+tests/dogfooding/run.sh --replay zlib
+tests/dogfooding/run.sh --replay=30 curl
+
+# Self-test: prove the checks catch injected faults (no container, fast).
+tests/dogfooding/selftest.sh
 ```
 
 The first invocation builds two cached images (`bear-dogfood-base:<sha>` and
@@ -92,10 +104,10 @@ The harness prints one final `OUTCOME:` line and exits with:
 
 | Outcome      | Exit | Meaning |
 |--------------|------|---------|
-| PASS         | 0    | golden: fresh capture matches the golden. oracle: matched TUs equivalent to the CMake oracle. determinism: the two captures are equivalent. No regression. |
-| FAIL         | 1    | golden: golden mismatch (review the diff, then fix Bear or rebless). oracle: matched TUs diverge from CMake's database (inspect the `matched but differing` section of `oracle-report.txt`). determinism: the two captures differ across two identical builds (real Bear non-determinism / a race; see `determinism-diff.txt`). A real behavioral change in Bear's output. |
-| INCONCLUSIVE | 2    | The target build failed for its own reasons (source fetch, sha, network, configure/make, OOM). Not a Bear regression. The build log is saved. |
-| ERROR        | 3    | Harness or Bear-infra failure: podman missing, disk/digest preflight, base image build, empty capture (libexec/INTERCEPT_LIBDIR mismatch), an oracle that matched 0 TUs (nothing compared), or missing host `cdb-compare`. |
+| PASS         | 0    | golden: fresh capture matches the golden. oracle: matched TUs equivalent to the CMake oracle. determinism: the two captures are equivalent. invariants: all structural invariants hold. replay: every sampled entry replayed (>=1 verified). No regression. |
+| FAIL         | 1    | golden: golden mismatch (review the diff, then fix Bear or rebless). oracle: matched TUs diverge from CMake's database (inspect the `matched but differing` section of `oracle-report.txt`). determinism: the two captures differ across two identical builds (see `determinism-diff.txt`). invariants: a structural invariant failed - Bear produced a malformed CDB (see `invariants-report.txt`). replay: a recorded command failed to replay - a malformed entry (see `replay_result`). A real behavioral change / defect in Bear's output. |
+| INCONCLUSIVE | 2    | The target build failed for its own reasons (source fetch, sha, network, configure/make, OOM). For replay, also: every sampled entry was inconclusive (all failures were missing generated inputs, so nothing was actually verified). Not a Bear regression. |
+| ERROR        | 3    | Harness or Bear-infra failure: podman missing, disk/digest preflight, base image build, empty capture (libexec/INTERCEPT_LIBDIR mismatch), an oracle that matched 0 TUs (nothing compared), missing host or in-image `cdb-compare`, or a non-numeric/zero object count. |
 
 Run artifacts land under `results/<target>/<label>/` (git-ignored). Goldens
 live under `goldens/<target>/` and are tracked.
@@ -225,10 +237,92 @@ so a normal run is unchanged. The FAIL run's `determinism-diff.txt` shows the
 injected flag present in run 2's arguments and absent in run 1's, confirming the
 check caught the divergence. `--inject-fault` is only valid with `--determinism`.
 
-The DROPPED / DUPLICATED / CORRUPTED-ENTRY faults from the Stage 4 plan belong
-to the separate `dogfood-invariants` check (structural assertions on a single
-capture), not to determinism, and are a separate Rust follow-up - not
-implemented here.
+The DROPPED / DUPLICATED / CORRUPTED-ENTRY faults from the Stage 4 plan are NOT
+determinism's territory: they are caught by the invariants and replay checks
+below, demonstrated by `selftest.sh`.
+
+## The invariants check (dogfood-invariants)
+
+`run.sh --invariants <target>` builds+captures once, then asserts structural
+invariants on the single capture with the host `cdb-compare invariants` and
+gates on its exit code (no golden, no oracle, no maintained baseline):
+
+- **non-empty-arguments** - no entry has empty `arguments`.
+- **no-true-duplicates** - no two entries share `file` + `output` + normalized
+  `arguments`. A source compiled into different outputs with different flags
+  (multi-config) is legitimate and is NOT flagged.
+- **entry-count** - the entry count is within `OBJECT_TOLERANCE_PCT` of the
+  number of object files the build produced.
+
+```sh
+tests/dogfooding/run.sh --invariants zlib   # PASS: 34 entries, 34 objects
+tests/dogfooding/run.sh --invariants curl   # PASS: 221 entries, 221 objects
+```
+
+The object count is taken IN the container before teardown by a per-target
+`OBJECT_COUNT_CMD` (config.env), written to `/out/object_count` and pulled out.
+It is per-target because "objects produced" is not always "*.o files on disk":
+curl's CMake leaves every object under `/build`, so the default
+`find $OBJECTS_DIR -name '*.o' | wc -l` is exact, but zlib's in-tree `make`
+deletes its PIC objects under `objs/` at link time (19 survive, 34 produced), so
+zlib instead counts make's own dependency graph (`make -Bn`). The human report
+is saved to `results/<target>/<label>/invariants-report.txt`. PASS = invariants
+hold; FAIL = a malformed CDB; a build failure is INCONCLUSIVE and infra is ERROR.
+
+## The replay check (dogfood-replay)
+
+`run.sh --replay[=N] <target>` (default N=20; also `--replay N`) builds+captures
+once, then replays a sample of Bear's entries to verify the compiler accepts the
+recorded arguments. Replay runs INSIDE the build container as part of the same
+`podman run`, because the recorded sources and generated headers exist there
+only before teardown.
+
+```sh
+tests/dogfooding/run.sh --replay zlib       # PASS: ok=20 fail=0 inconclusive=0
+tests/dogfooding/run.sh --replay=30 curl    # PASS: build-dir-aware sample
+```
+
+The in-image `cdb-compare sample <capture> --count N --build-dir <BUILD_DIR>`
+selects up to N replayable entries (preferring TUs whose flags do not reference
+build-dir includes) and emits one shell-quoted replay line per entry. Each is
+replayed as `( cd "$dir" && "$@" -fsyntax-only )` and tallied:
+
+- **OK** - the compiler accepted the recorded arguments.
+- **INCONCLUSIVE** - the failure is a missing input (a generated header gone
+  after teardown: stderr matches "No such file" / "file not found" / "not
+  found"). Not a Bear fault.
+- **FAIL** - any other failure, including a recorded `directory` that does not
+  exist (a corrupted-directory fault). A malformed entry.
+
+Gate (non-vacuity, mirroring the oracle): any real FAIL => FAIL; all OK
+(inconclusive allowed) => PASS; EVERY sampled entry inconclusive (nothing
+verified) => INCONCLUSIVE. The tally and any failing commands are saved to
+`results/<target>/<label>/replay_result`. On the pinned builds all 20 sampled
+entries replay OK for both targets.
+
+## The self-test: catching injected faults (the Stage 4 exit criterion)
+
+`tests/dogfooding/selftest.sh` demonstrates that the checks catch the plan's
+injected faults - a dropped entry, a duplicated entry, and a corrupted
+`directory` - WITHOUT a container and without `jq`, so it is fast. It runs the
+host `cdb-compare` (and the same `replay-loop.sh` function the in-container
+replay uses) against tiny, committed fault fixtures under `faults/` and asserts
+each check exits non-zero:
+
+```sh
+tests/dogfooding/selftest.sh   # all faults caught => exit 0
+```
+
+| Fixture                      | Fault                | Caught by |
+|------------------------------|----------------------|-----------|
+| `faults/duplicate.json`      | duplicated entry     | invariants (no-true-duplicates) |
+| `faults/empty-arguments.json`| empty `arguments`    | invariants (non-empty-arguments) |
+| `faults/undercount.json`     | dropped entry        | invariants (entry-count, `--expected-objects 3`) |
+| `faults/bad-directory.json`  | corrupted `directory`| replay (recorded directory does not exist) |
+
+A control case (an honest CDB passes invariants) guards against false positives.
+The fixtures are hand-written and committed (outside the git-ignored `results/`)
+so the fault is unambiguous, not the product of fragile in-shell JSON surgery.
 
 ## What the harness does NOT do
 

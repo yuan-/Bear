@@ -1,0 +1,8 @@
+[
+  {
+    "directory": "/nonexistent/bear/dogfood/corrupted-directory",
+    "file": "hello.c",
+    "arguments": ["cc", "-c", "-o", "hello.o", "hello.c"],
+    "output": "hello.o"
+  }
+]

@@ -1,0 +1,14 @@
+[
+  {
+    "directory": "/src",
+    "file": "adler32.c",
+    "arguments": ["cc", "-c", "-o", "adler32.o", "adler32.c"],
+    "output": "adler32.o"
+  },
+  {
+    "directory": "/src",
+    "file": "adler32.c",
+    "arguments": ["cc", "-c", "-o", "adler32.o", "adler32.c"],
+    "output": "adler32.o"
+  }
+]

@@ -12,21 +12,37 @@
 #           emits, on the intersection of translation units, via cdb-compare
 #           (dogfood-oracle-cmake, dogfood-divergence-report).
 #
-# A third, target-agnostic mode (dogfood-determinism, Stage 4) is selected with
-# --determinism: run the SAME target's build twice in two fresh throwaway
-# containers and compare the two captures with cdb-compare. The build is its own
-# reference - no golden, no oracle. PASS iff the two captures are equivalent;
-# FAIL means real non-determinism / a race in Bear itself.
+# Three target-agnostic Stage 4 modes each build+capture once (twice, for
+# determinism) and SKIP the golden/oracle gate:
+#   --determinism   run the build twice and compare the two captures
+#                   (dogfood-determinism). PASS iff equivalent; FAIL = real
+#                   non-determinism / a race in Bear itself.
+#   --invariants    assert structural invariants on the single capture with
+#                   cdb-compare (dogfood-invariants): non-empty arguments, no
+#                   true duplicates, and entry count within tolerance of the
+#                   object files the build produced. PASS iff all hold; FAIL =
+#                   a malformed CDB.
+#   --replay[=N]    sample up to N entries (default 20) and replay each recorded
+#                   command in its directory with -fsyntax-only, INSIDE the build
+#                   container (dogfood-replay). PASS iff all sampled entries
+#                   replay (>=1 verified); FAIL = a malformed entry; all-
+#                   inconclusive = INCONCLUSIVE.
 #
 # Usage:
 #   tests/dogfooding/run.sh [--label L] [--rebless] [--keep] [zlib|curl]
 #   tests/dogfooding/run.sh --determinism [--inject-fault] [--label L] [--keep] T
+#   tests/dogfooding/run.sh --invariants [--label L] [--keep] T
+#   tests/dogfooding/run.sh --replay[=N] [--label L] [--keep] T
+#   tests/dogfooding/selftest.sh    # no container: prove the checks catch faults
 #
 #   --label L       name the per-run results subdirectory (default: local)
 #   --rebless       regenerate the committed golden from this run instead of
 #                   gating against it (dogfood-golden-rebless; golden targets only)
 #   --determinism   run the build twice and compare the two captures
 #                   (dogfood-determinism); skips the golden/oracle gate
+#   --invariants    assert structural invariants on one capture (dogfood-invariants)
+#   --replay[=N]    replay up to N sampled entries in-container (dogfood-replay;
+#                   default N=20; also accepts `--replay N`)
 #   --inject-fault  with --determinism, perturb the SECOND build with an extra
 #                   compiler flag so the captures legitimately diverge - a
 #                   self-test that the determinism check catches a fault
@@ -52,6 +68,9 @@ REBLESS=0
 KEEP=0
 DETERMINISM=0
 INJECT_FAULT=0
+INVARIANTS=0
+REPLAY=0
+REPLAY_COUNT=20
 TARGET=""
 
 while [ $# -gt 0 ]; do
@@ -61,12 +80,22 @@ while [ $# -gt 0 ]; do
         --rebless) REBLESS=1 ;;
         --determinism) DETERMINISM=1 ;;
         --inject-fault) INJECT_FAULT=1 ;;
+        --invariants) INVARIANTS=1 ;;
+        --replay) REPLAY=1 ;;
+        --replay=*) REPLAY=1; REPLAY_COUNT="${1#--replay=}" ;;
         --keep) KEEP=1 ;;
         -h|--help)
-            sed -n '4,38p' "$HERE/run.sh" >&2
+            sed -n '4,54p' "$HERE/run.sh" >&2
             exit 0 ;;
         --*) finish ERROR "unknown option: $1" ;;
         *)
+            # A bare integer right after --replay is its count (--replay N form).
+            if [ "$REPLAY" -eq 1 ] && [ "$REPLAY_COUNT" = "20" ]; then
+                case "$1" in
+                    *[!0-9]*) ;;  # not a number: fall through to target handling
+                    *) REPLAY_COUNT="$1"; shift; continue ;;
+                esac
+            fi
             if [ -n "$TARGET" ]; then finish ERROR "only one target supported, got extra: $1"; fi
             TARGET="$1" ;;
     esac
@@ -74,14 +103,26 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$TARGET" ] || TARGET="zlib"
 
-# --determinism is its own check (the build is its own reference): it never
-# involves a golden, so --rebless makes no sense with it. --inject-fault is a
-# self-test of --determinism only.
-if [ "$DETERMINISM" -eq 1 ] && [ "$REBLESS" -eq 1 ]; then
-    finish ERROR "--determinism and --rebless are mutually exclusive (no golden is involved)"
+# --determinism, --invariants, and --replay are each a standalone Stage 4 check
+# that builds+captures once (or twice, for determinism) and SKIPS the
+# golden/oracle gate. They are mutually exclusive with each other and with
+# --rebless (no golden is involved). --inject-fault is a self-test of
+# --determinism only.
+MODE_COUNT=$((DETERMINISM + INVARIANTS + REPLAY))
+if [ "$MODE_COUNT" -gt 1 ]; then
+    finish ERROR "--determinism, --invariants, and --replay are mutually exclusive"
+fi
+if [ "$MODE_COUNT" -ge 1 ] && [ "$REBLESS" -eq 1 ]; then
+    finish ERROR "--rebless applies only to the default golden gate, not the Stage 4 checks"
 fi
 if [ "$INJECT_FAULT" -eq 1 ] && [ "$DETERMINISM" -eq 0 ]; then
     finish ERROR "--inject-fault is only meaningful with --determinism"
+fi
+case "$REPLAY_COUNT" in
+    ''|*[!0-9]*) finish ERROR "--replay count must be a positive integer: '$REPLAY_COUNT'" ;;
+esac
+if [ "$REPLAY" -eq 1 ] && [ "$REPLAY_COUNT" -lt 1 ]; then
+    finish ERROR "--replay count must be >= 1"
 fi
 
 # Both values become path segments and a container-name segment; reject anything
@@ -116,7 +157,7 @@ CONTAINER="bear-dogfood-$TARGET-$LABEL-$$"
 # Determinism runs the build twice, in two distinct fresh containers.
 CONTAINER2="bear-dogfood-$TARGET-$LABEL-$$-2"
 
-info "target=$TARGET label=$LABEL bear=$BEAR_SHA rebless=$REBLESS determinism=$DETERMINISM inject_fault=$INJECT_FAULT keep=$KEEP"
+info "target=$TARGET label=$LABEL bear=$BEAR_SHA rebless=$REBLESS determinism=$DETERMINISM invariants=$INVARIANTS replay=$REPLAY replay_count=$REPLAY_COUNT inject_fault=$INJECT_FAULT keep=$KEEP"
 
 # Cleanup of the throwaway container(s) unless --keep. Cached images are left in
 # place (mentioned in the final report); the harness only removes what it spun
@@ -282,6 +323,137 @@ if [ "$DETERMINISM" -eq 1 ]; then
         err "the two captures differ; diffs saved to $DIFF_HUMAN and $DIFF_JSON"
         finish FAIL "captures differ across two identical builds (Bear non-determinism) - see $DIFF_HUMAN"
     fi
+fi
+
+# === STEP 5 (invariants): ONE BUILD + STRUCTURAL INVARIANTS (dogfood-invariants)
+# Stage 4 self-check: build+capture once, then assert structural invariants on
+# the single capture with the host cdb-compare, and gate on its exit code. No
+# golden, no oracle. The checks: non-empty-arguments and no-true-duplicates
+# (always), plus entry-count against the number of object files the build
+# actually produced (opt-in via --expected-objects).
+#
+# The object count is taken IN the container before teardown by a per-target
+# OBJECT_COUNT_CMD (config.env): curl uses the default `find $OBJECTS_DIR -name
+# '*.o' | wc -l` (its CMake objects persist), zlib counts make's dependency
+# graph (`make -Bn`) because its in-tree build deletes its PIC objects. The
+# count is written to /out/object_count, pulled out, and fed to
+# --expected-objects with a per-target --tolerance band (OBJECT_TOLERANCE_PCT)
+# so a stray build-system .o does not false-fail.
+#
+# PASS = invariants hold; FAIL = Bear produced a malformed CDB; build failure
+# is INCONCLUSIVE and infra is ERROR (both handled in build_and_capture).
+
+if [ "$INVARIANTS" -eq 1 ]; then
+    FRESH="$RESULTS_DIR/compile_commands.json"
+    BUILD_LOG="$RESULTS_DIR/build.log"
+    OBJECTS_DIR="${OBJECTS_DIR:?config.env must set OBJECTS_DIR for invariants mode}"
+    OBJ_TOL="${OBJECT_TOLERANCE_PCT:-10}"
+
+    # Post-build step: count the object files the build PRODUCED and write the
+    # number to /out/object_count. The instrument is per-target (OBJECT_COUNT_CMD
+    # in config.env) because "objects produced" is not always "*.o files still on
+    # disk": curl's CMake leaves every object under /build, so a `find` is exact
+    # (the default below), but zlib's in-tree make deletes its PIC objects under
+    # objs/ at link time, so a post-build find undercounts ~2x. zlib therefore
+    # overrides OBJECT_COUNT_CMD to count make's own dependency graph
+    # (`make -Bn`), a build-system-native, cleanup-independent, Bear-independent
+    # count of produced objects. Default: count surviving *.o under OBJECTS_DIR.
+    OBJECT_COUNT_CMD="${OBJECT_COUNT_CMD:-find \"$OBJECTS_DIR\" -name '*.o' 2>/dev/null | wc -l}"
+    INV_POST="{ $OBJECT_COUNT_CMD ; } > /out/object_count 2>/dev/null"
+
+    build_and_capture "$CONTAINER" "$FRESH" "$BUILD_LOG" "" "$INV_POST"
+
+    OBJ_COUNT_FILE="$RESULTS_DIR/object_count"
+    if ! podman cp "$CONTAINER:/out/object_count" "$OBJ_COUNT_FILE" >&2; then
+        finish ERROR "could not copy object_count out of the container"
+    fi
+    OBJ_COUNT="$(tr -d ' \n\r\t' < "$OBJ_COUNT_FILE")"
+    case "$OBJ_COUNT" in
+        ''|*[!0-9]*) finish ERROR "object_count is not a number: '$OBJ_COUNT'" ;;
+    esac
+    if [ "$OBJ_COUNT" -eq 0 ]; then
+        finish ERROR "object_count is 0 (find under $OBJECTS_DIR matched nothing); cannot gate entry-count"
+    fi
+    ENTRY_COUNT="$(grep -c '"file"' "$FRESH" 2>/dev/null || echo 0)"
+    info "invariants: object_count=$OBJ_COUNT entry_count=$ENTRY_COUNT tolerance=${OBJ_TOL}%"
+
+    REPORT="$RESULTS_DIR/invariants-report.txt"
+    info "asserting structural invariants (cdb-compare invariants)"
+    set +e
+    "$CDB_COMPARE" invariants --drop-dependency-flags \
+        --expected-objects "$OBJ_COUNT" --tolerance "$OBJ_TOL" \
+        --format human "$FRESH" >"$REPORT" 2>&1
+    INV_RC=$?
+    set -e
+    cat "$REPORT" >&2
+
+    case "$INV_RC" in
+        0) finish PASS "structural invariants hold (entries=$ENTRY_COUNT objects=$OBJ_COUNT); see $REPORT" ;;
+        1) err "an invariant failed; see $REPORT"
+           finish FAIL "Bear produced a malformed CDB (invariant violated) - see $REPORT" ;;
+        *) finish ERROR "cdb-compare invariants failed to run (exit $INV_RC); see $REPORT" ;;
+    esac
+fi
+
+# === STEP 5 (replay): ONE BUILD + REPLAY A SAMPLE (dogfood-replay) ============
+# Stage 4 self-check: build+capture once, then take a sample of Bear's entries
+# and replay each recorded command in its recorded directory with -fsyntax-only
+# appended, verifying the compiler accepts the recorded arguments. This runs
+# INSIDE the build container as part of the SAME podman run, because the
+# recorded sources and generated headers exist there only before teardown. The
+# replay loop (replay-loop.sh) is read into the in-container script; the
+# in-image cdb-compare at /opt/bear/bin/cdb-compare drives the sampling.
+#
+# Categorization (per replay-loop.sh): OK / INCONCLUSIVE (missing generated
+# header) / FAIL (malformed entry). Gate: any real FAIL => FAIL; all OK
+# (inconclusive allowed) => PASS; every sampled entry inconclusive (nothing
+# verified) => INCONCLUSIVE (do not pass vacuously).
+
+if [ "$REPLAY" -eq 1 ]; then
+    FRESH="$RESULTS_DIR/compile_commands.json"
+    BUILD_LOG="$RESULTS_DIR/build.log"
+    REPLAY_BUILD_DIR="${BUILD_DIR:?config.env must set BUILD_DIR for replay mode}"
+
+    # Verify the in-image cdb-compare exists before relying on it.
+    if ! podman run --rm "$TARGET_TAG" test -x /opt/bear/bin/cdb-compare; then
+        finish ERROR "in-image cdb-compare missing at /opt/bear/bin/cdb-compare"
+    fi
+
+    # Build the in-container post-build snippet: the replay function definition
+    # (from replay-loop.sh) followed by one call against Bear's capture. The
+    # function writes its OK/FAIL/INCONCLUSIVE tally and any failing commands to
+    # /out/replay_result; its return code is recorded to /out/replay_rc so the
+    # host can gate on it without parsing JSON.
+    [ -f "$HERE/replay-loop.sh" ] || finish ERROR "replay-loop.sh missing next to run.sh (commit the harness)"
+    REPLAY_FN="$(cat "$HERE/replay-loop.sh")"
+    REPLAY_POST="$REPLAY_FN
+replay_cdb /opt/bear/bin/cdb-compare /out/compile_commands.json $REPLAY_COUNT \"$REPLAY_BUILD_DIR\" /out/replay_result
+echo \$? > /out/replay_rc
+cat /out/replay_result"
+
+    build_and_capture "$CONTAINER" "$FRESH" "$BUILD_LOG" "" "$REPLAY_POST"
+
+    REPLAY_RESULT="$RESULTS_DIR/replay_result"
+    REPLAY_RC_FILE="$RESULTS_DIR/replay_rc"
+    if ! podman cp "$CONTAINER:/out/replay_result" "$REPLAY_RESULT" >&2; then
+        finish ERROR "could not copy replay_result out of the container"
+    fi
+    if ! podman cp "$CONTAINER:/out/replay_rc" "$REPLAY_RC_FILE" >&2; then
+        finish ERROR "could not copy replay_rc out of the container"
+    fi
+    cat "$REPLAY_RESULT" >&2
+    REPLAY_RC="$(tr -d ' \n\r\t' < "$REPLAY_RC_FILE")"
+    TALLY="$(sed -n 's/^replay: //p' "$REPLAY_RESULT")"
+    info "replay: $TALLY (build-dir $REPLAY_BUILD_DIR, sampled up to $REPLAY_COUNT)"
+
+    case "$REPLAY_RC" in
+        0) finish PASS "all sampled entries replayed (at least one verified): $TALLY" ;;
+        1) err "a recorded command failed to replay (malformed entry); see $REPLAY_RESULT"
+           finish FAIL "replay failed - a malformed entry was found ($TALLY); see $REPLAY_RESULT" ;;
+        2) finish INCONCLUSIVE "every sampled entry was inconclusive (missing generated inputs); replay verified nothing ($TALLY)" ;;
+        3) finish ERROR "in-container cdb-compare sample failed; replay could not start - see $REPLAY_RESULT" ;;
+        *) finish ERROR "replay loop did not run to completion (rc='$REPLAY_RC'); see $REPLAY_RESULT" ;;
+    esac
 fi
 
 # === STEP 5: REAL RUN (dogfood-run-containerized + dogfood-fixed-paths) =======
