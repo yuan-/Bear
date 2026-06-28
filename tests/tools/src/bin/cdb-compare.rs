@@ -8,7 +8,7 @@
 //! emits a canonical database, the way a golden manifest is produced.
 
 use std::fs::File;
-use std::io::{self, BufWriter};
+use std::io::{self, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -17,6 +17,8 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 
 use bear_test_tools::cdb::{CompilationDatabase, Normalization};
 use bear_test_tools::compare::{DiffReport, compare};
+use bear_test_tools::invariants::{self, CountExpectation};
+use bear_test_tools::sample;
 
 #[derive(Debug, Parser)]
 #[command(name = "cdb-compare", about = "Compare or normalize JSON compilation databases")]
@@ -31,6 +33,10 @@ enum Command {
     Compare(CompareArgs),
     /// Emit a canonical compilation database (for golden manifests).
     Normalize(NormalizeArgs),
+    /// Assert structural invariants on a single database.
+    Invariants(InvariantsArgs),
+    /// Select replayable entries and emit shell-safe replay lines.
+    Sample(SampleArgs),
 }
 
 /// Normalization flags shared by both subcommands. Every operation is off by
@@ -100,6 +106,39 @@ struct NormalizeArgs {
     /// Output file; defaults to stdout.
     #[arg(short = 'o', long, value_name = "FILE")]
     output: Option<PathBuf>,
+}
+
+#[derive(Debug, Args)]
+struct InvariantsArgs {
+    #[command(flatten)]
+    normalization: NormalizationArgs,
+    /// Expected object count; the entry count must land within `--tolerance` of it.
+    #[arg(long, value_name = "N")]
+    expected_objects: Option<usize>,
+    /// Tolerance percent for the `--expected-objects` band; the band is
+    /// `+/- ceil(N * PCT / 100)`. Defaults to 0 (an exact match).
+    #[arg(long, value_name = "PCT", default_value_t = 0)]
+    tolerance: usize,
+    /// A simple floor on the entry count (assert `entries >= N`).
+    #[arg(long, value_name = "N")]
+    min_entries: Option<usize>,
+    /// Report format.
+    #[arg(long, value_enum, default_value_t = Format::Human)]
+    format: Format,
+    /// Database to check.
+    cdb: PathBuf,
+}
+
+#[derive(Debug, Args)]
+struct SampleArgs {
+    /// Maximum number of entries to emit.
+    #[arg(long, value_name = "K")]
+    count: usize,
+    /// Prefer entries with no `-I` include path under this directory.
+    #[arg(long, value_name = "DIR")]
+    build_dir: Option<PathBuf>,
+    /// Database to sample.
+    cdb: PathBuf,
 }
 
 fn load(path: &Path) -> Result<CompilationDatabase> {
@@ -201,11 +240,48 @@ fn run_normalize(args: NormalizeArgs) -> Result<ExitCode> {
     Ok(ExitCode::SUCCESS)
 }
 
+fn run_invariants(args: InvariantsArgs) -> Result<ExitCode> {
+    // Normalize first (no sort - order is irrelevant to the checks) so the
+    // duplicate key uses normalized arguments automatically.
+    let norm = args.normalization.into_normalization(false);
+    let mut db = load(&args.cdb)?;
+    db.normalize(&norm);
+
+    let expectation = CountExpectation {
+        expected_objects: args.expected_objects,
+        tolerance_pct: args.tolerance,
+        min_entries: args.min_entries,
+    };
+    let report = invariants::check(&db, &expectation);
+
+    match args.format {
+        Format::Human => print!("{}", report.to_human()),
+        Format::Json => {
+            println!("{}", serde_json::to_string_pretty(&report).context("failed to serialize report")?)
+        }
+    }
+
+    Ok(if report.pass { ExitCode::SUCCESS } else { ExitCode::FAILURE })
+}
+
+fn run_sample(args: SampleArgs) -> Result<ExitCode> {
+    let db = load(&args.cdb)?;
+    let selected = sample::select(&db, args.count, args.build_dir.as_deref());
+    let stdout = io::stdout();
+    let mut out = BufWriter::new(stdout.lock());
+    for entry in selected {
+        writeln!(out, "{}", sample::to_line(entry)).context("failed to write to stdout")?;
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
 fn main() -> Result<ExitCode> {
     let cli = Cli::parse();
     match cli.command {
         Command::Compare(args) => run_compare(args),
         Command::Normalize(args) => run_normalize(args),
+        Command::Invariants(args) => run_invariants(args),
+        Command::Sample(args) => run_sample(args),
     }
 }
 

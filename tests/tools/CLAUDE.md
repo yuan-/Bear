@@ -52,3 +52,38 @@ default. Both subcommands accept:
   report gains a one-line summary (matched/differing/Bear-only/CMake-only); the
   JSON report is unchanged. Default behavior (flag absent) is unchanged: any
   non-empty set fails.
+
+- `invariants [NORM...] [--expected-objects N] [--tolerance PCT]
+  [--min-entries N] [--format human|json] CDB`
+  asserts structural invariants on one database and exits non-zero iff any
+  check fails. The `NORM` flags apply before the checks (no sort), so the
+  duplicate key uses normalized arguments. Checks:
+  - `non-empty-arguments` (always): fails if any entry has empty `arguments`;
+    offenders are those entries' `file`s.
+  - `no-true-duplicates` (always): groups entries by the full triple
+    `(file, output, arguments)` post-normalization; any group of two or more
+    is a true duplicate. The legitimate multi-output case (same `file`,
+    different `output`/arguments) forms distinct groups and is not flagged.
+  - `entry-count` (opt-in): present iff `--expected-objects` or `--min-entries`
+    is given, else `"skipped"`. Passes iff every given constraint holds:
+    `--expected-objects N` requires `|entries - N| <= ceil(N * PCT / 100)`
+    (`--tolerance PCT`, default 0); `--min-entries M` requires `entries >= M`.
+    The tool never walks the filesystem; the harness passes `N`. (Exact
+    object-set membership is a deferred refinement.)
+  JSON shape: `{"pass": bool, "checks": [{"name", "status":
+  "pass"|"fail"|"skipped", "offenders"?, "detail"?}]}`. An offender is
+  `{"file", "output"?, "count"?}` (absent fields omitted); `offenders` is
+  omitted when empty and `detail` (`{"entries", "expected"?, "tolerance_pct"?,
+  "min"?}`) appears only on the entry-count check.
+
+- `sample --count K [--build-dir DIR] CDB`
+  selects up to `K` entries deterministically (stable order, no RNG) and prints
+  one shell-safe replay line each. With `--build-dir DIR`, entries whose
+  `arguments` carry no `-I` include path under `DIR` (attached `-I<path>` or
+  split `-I <path>`, matched component-wise so `/buildother` is not under
+  `/build`) rank first; the rest fill up to `min(K, total)`. `--count 0` emits
+  nothing; `K` larger than the database emits all. Each line is the entry's
+  `directory` followed by its `arguments`, every token individually quoted with
+  `shell_words::quote` and space-joined, so a jq-less consumer does
+  `eval "set -- $line"; dir=$1; shift; ( cd "$dir" && "$@" ... )`. `sample`
+  takes no normalization flags and never execs.

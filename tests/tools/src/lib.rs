@@ -9,8 +9,11 @@
 
 pub mod cdb;
 pub mod compare;
+pub mod invariants;
 pub mod matcher;
+pub mod sample;
 
 pub use cdb::{CdbError, CompilationDatabase, Entry, Normalization};
 pub use compare::{DiffReport, DifferingEntry, compare};
+pub use invariants::{Check, CountExpectation, InvariantsReport, Offender, Status};
 pub use matcher::CompilationEntryMatcher;
