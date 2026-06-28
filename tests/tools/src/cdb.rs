@@ -133,6 +133,18 @@ impl CompilationDatabase {
     /// `norm` run. `sort` is applied last so the canonical order reflects the
     /// post-substitution, post-relativization values.
     pub fn normalize(&mut self, norm: &Normalization) {
+        if norm.output_from_o {
+            for entry in &mut self.entries {
+                if let Some(output) = output_from_o(&entry.directory, &entry.arguments) {
+                    entry.output = Some(output);
+                }
+            }
+        }
+        if norm.drop_dependency_flags {
+            for entry in &mut self.entries {
+                entry.arguments = drop_dependency_flags(&entry.arguments);
+            }
+        }
         if let Some(canonical) = &norm.substitute_compiler {
             for entry in &mut self.entries {
                 if let Some(first) = entry.arguments.first_mut() {
@@ -182,6 +194,16 @@ pub struct Normalization {
     /// root. Paths embedded inside `arguments` (e.g. `-I/abs/path`) are left
     /// untouched; argument-level rebasing is deferred until a real diff needs it.
     pub relativize_paths: Option<PathBuf>,
+    /// Rewrite each entry's `output` to the absolute object path derived from the
+    /// compiler's `-o` argument resolved against `directory` (lexically, without
+    /// touching the filesystem). Makes the match key a true object identity that
+    /// is identical across producers regardless of how each encodes `output`.
+    pub output_from_o: bool,
+    /// Strip the dependency-file generation flags (`-MD`, `-MMD`, `-MP`, and the
+    /// argument-consuming `-MF`/`-MT`/`-MQ`/`-MJ`) from `arguments`. They only
+    /// control the build system's `.d` side-file and never affect the produced
+    /// object or how a Clang tool parses the translation unit.
+    pub drop_dependency_flags: bool,
 }
 
 /// Rebase an absolute path string against `root`. A path that is not under
@@ -194,6 +216,78 @@ fn relativize(value: &str, root: &Path) -> String {
         Ok(rel) => rel.to_string_lossy().into_owned(),
         Err(_) => value.to_string(),
     }
+}
+
+/// Derive the absolute object path from the compiler's `-o` argument resolved
+/// against `directory`. Only the separate-token `-o <path>` form is recognized
+/// (the only form the captured data uses); an attached `-ofoo` is ignored. If
+/// `-o` appears more than once the last occurrence wins, matching compiler
+/// semantics. Returns `None` when there is no `-o` argument.
+fn output_from_o(directory: &str, arguments: &[String]) -> Option<String> {
+    let mut value: Option<&str> = None;
+    let mut iter = arguments.iter();
+    while let Some(arg) = iter.next() {
+        if arg == "-o"
+            && let Some(next) = iter.next()
+        {
+            value = Some(next);
+        }
+    }
+    let value = value?;
+    let joined =
+        if Path::new(value).is_absolute() { PathBuf::from(value) } else { Path::new(directory).join(value) };
+    Some(lexically_normalize(&joined))
+}
+
+/// Collapse `.`, `..`, and redundant separators in an absolute path purely
+/// lexically - without `canonicalize`/stat - because the paths name files
+/// inside a throwaway container that does not exist on this host. A leading `..`
+/// (a path that escapes its root) is kept as-is rather than discarded.
+fn lexically_normalize(path: &Path) -> String {
+    use std::path::Component;
+
+    let mut stack: Vec<Component> = Vec::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => match stack.last() {
+                Some(Component::Normal(_)) => {
+                    stack.pop();
+                }
+                _ => stack.push(component),
+            },
+            other => stack.push(other),
+        }
+    }
+    let mut result = PathBuf::new();
+    for component in stack {
+        result.push(component.as_os_str());
+    }
+    result.to_string_lossy().into_owned()
+}
+
+/// Remove the dependency-file generation flags from `arguments`. `-MD`, `-MMD`,
+/// and `-MP` take no argument; `-MF`, `-MT`, `-MQ`, and `-MJ` each consume the
+/// single following token, which is dropped with them. Matching is on whole
+/// tokens only (the form the data uses); a trailing consuming flag with no
+/// following token is simply dropped without panicking.
+fn drop_dependency_flags(arguments: &[String]) -> Vec<String> {
+    const NO_ARG: [&str; 3] = ["-MD", "-MMD", "-MP"];
+    const CONSUMES_ARG: [&str; 4] = ["-MF", "-MT", "-MQ", "-MJ"];
+
+    let mut result = Vec::with_capacity(arguments.len());
+    let mut iter = arguments.iter();
+    while let Some(arg) = iter.next() {
+        if NO_ARG.contains(&arg.as_str()) {
+            continue;
+        }
+        if CONSUMES_ARG.contains(&arg.as_str()) {
+            iter.next();
+            continue;
+        }
+        result.push(arg.clone());
+    }
+    result
 }
 
 #[cfg(test)]
@@ -323,6 +417,186 @@ mod tests {
 
         assert_eq!(from_unsorted.entries[0].file, "/w/a.c");
         assert_eq!(serialize(&from_unsorted), serialize(&from_reordered));
+    }
+
+    /// An entry whose `-o` value is relative to `directory` (Bear's encoding).
+    fn entry_with_relative_o() -> &'static str {
+        r#"[{
+            "directory": "/build/lib",
+            "file": "/src/lib/altsvc.c",
+            "arguments": ["cc", "-o", "CMakeFiles/libcurl_shared.dir/altsvc.c.o", "-c", "/src/lib/altsvc.c"],
+            "output": "CMakeFiles/libcurl_shared.dir/altsvc.c.o"
+        }]"#
+    }
+
+    /// The same object as `entry_with_relative_o`, but with the `output` field
+    /// encoded relative to the build root (CMake's encoding). The `-o` value is
+    /// still relative to `directory`, so `output_from_o` must reconcile them.
+    fn entry_with_build_root_output() -> &'static str {
+        r#"[{
+            "directory": "/build/lib",
+            "file": "/src/lib/altsvc.c",
+            "arguments": ["cc", "-o", "CMakeFiles/libcurl_shared.dir/altsvc.c.o", "-c", "/src/lib/altsvc.c"],
+            "output": "lib/CMakeFiles/libcurl_shared.dir/altsvc.c.o"
+        }]"#
+    }
+
+    #[test]
+    fn output_from_o_reconciles_differently_encoded_outputs() {
+        let norm = Normalization { output_from_o: true, ..Default::default() };
+
+        let mut bear = parse(entry_with_relative_o()).unwrap();
+        bear.normalize(&norm);
+        let mut cmake = parse(entry_with_build_root_output()).unwrap();
+        cmake.normalize(&norm);
+
+        let expected = Some("/build/lib/CMakeFiles/libcurl_shared.dir/altsvc.c.o".to_string());
+        assert_eq!(bear.entries[0].output, expected);
+        assert_eq!(cmake.entries[0].output, expected);
+    }
+
+    #[test]
+    fn output_from_o_preserves_absolute_o_value() {
+        let json = r#"[{
+            "directory": "/build/lib",
+            "file": "/src/a.c",
+            "arguments": ["cc", "-o", "/build/lib/a.o", "-c", "/src/a.c"],
+            "output": "a.o"
+        }]"#;
+        let mut sut = parse(json).unwrap();
+        let norm = Normalization { output_from_o: true, ..Default::default() };
+
+        sut.normalize(&norm);
+
+        assert_eq!(sut.entries[0].output.as_deref(), Some("/build/lib/a.o"));
+    }
+
+    #[test]
+    fn output_from_o_last_occurrence_wins() {
+        // Compiler semantics: a repeated -o means the last value is the object.
+        let json = r#"[{
+            "directory": "/build/lib",
+            "file": "/src/a.c",
+            "arguments": ["cc", "-o", "first.o", "-o", "second.o", "-c", "/src/a.c"]
+        }]"#;
+        let mut sut = parse(json).unwrap();
+        let norm = Normalization { output_from_o: true, ..Default::default() };
+
+        sut.normalize(&norm);
+
+        assert_eq!(sut.entries[0].output.as_deref(), Some("/build/lib/second.o"));
+    }
+
+    #[test]
+    fn output_from_o_leaves_output_unchanged_without_o_argument() {
+        let json = r#"[{
+            "directory": "/build/lib",
+            "file": "/src/a.c",
+            "arguments": ["cc", "-c", "/src/a.c"],
+            "output": "a.o"
+        }]"#;
+        let mut sut = parse(json).unwrap();
+        let norm = Normalization { output_from_o: true, ..Default::default() };
+
+        sut.normalize(&norm);
+
+        assert_eq!(sut.entries[0].output.as_deref(), Some("a.o"));
+    }
+
+    #[test]
+    fn output_from_o_keeps_multi_target_outputs_distinct() {
+        // The same source compiled into two targets has distinct `-o` values, so
+        // the derived absolute outputs must stay distinct (file-only matching
+        // would falsely collapse them).
+        let json = r#"[
+            {
+                "directory": "/build/lib",
+                "file": "/src/lib/base64.c",
+                "arguments": ["cc", "-o", "CMakeFiles/libcurl_shared.dir/base64.c.o", "-c", "/src/lib/base64.c"]
+            },
+            {
+                "directory": "/build/src",
+                "file": "/src/lib/base64.c",
+                "arguments": ["cc", "-o", "CMakeFiles/curl.dir/__/lib/base64.c.o", "-c", "/src/lib/base64.c"]
+            }
+        ]"#;
+        let mut sut = parse(json).unwrap();
+        let norm = Normalization { output_from_o: true, ..Default::default() };
+
+        sut.normalize(&norm);
+
+        assert_eq!(
+            sut.entries[0].output.as_deref(),
+            Some("/build/lib/CMakeFiles/libcurl_shared.dir/base64.c.o")
+        );
+        // The `..` in `__/lib` is not lexically collapsible here (it is a literal
+        // directory name CMake emits, not a real parent reference), so it is kept.
+        assert_eq!(
+            sut.entries[1].output.as_deref(),
+            Some("/build/src/CMakeFiles/curl.dir/__/lib/base64.c.o")
+        );
+        assert_ne!(sut.entries[0].output, sut.entries[1].output);
+    }
+
+    #[test]
+    fn drop_dependency_flags_removes_the_depfile_group() {
+        let cases: &[(&[&str], &[&str])] = &[
+            // No-argument and consuming flags interleaved with kept flags.
+            (
+                &["cc", "-MD", "-MT", "x.o", "-MF", "x.o.d", "-o", "x.o", "-c", "a.c"],
+                &["cc", "-o", "x.o", "-c", "a.c"],
+            ),
+            // -MMD/-MP no-argument forms and -MQ/-MJ consuming forms.
+            (&["cc", "-MMD", "-MP", "-MQ", "t", "-MJ", "db.json", "-c", "a.c"], &["cc", "-c", "a.c"]),
+            // A trailing consuming flag with no following token must not panic.
+            (&["cc", "-c", "a.c", "-MF"], &["cc", "-c", "a.c"]),
+            // Lookalikes and ordinary flags are kept untouched.
+            (
+                &["cc", "-MMD-not-a-flag", "-Map", "-O2", "-Wall", "-fPIC", "-c", "a.c"],
+                &["cc", "-MMD-not-a-flag", "-Map", "-O2", "-Wall", "-fPIC", "-c", "a.c"],
+            ),
+        ];
+
+        for (input, expected) in cases {
+            let arguments: Vec<String> = input.iter().map(|s| s.to_string()).collect();
+
+            let sut = super::drop_dependency_flags(&arguments);
+
+            assert_eq!(sut, *expected, "case: {input:?}");
+        }
+    }
+
+    #[test]
+    fn drop_dependency_flags_makes_depfile_only_difference_cancel() {
+        use crate::compare::compare;
+
+        let with_depflags = parse(
+            r#"[{
+                "directory": "/build/lib",
+                "file": "/src/a.c",
+                "arguments": ["cc", "-MD", "-MT", "a.o", "-MF", "a.o.d", "-o", "a.o", "-c", "/src/a.c"],
+                "output": "a.o"
+            }]"#,
+        )
+        .unwrap();
+        let without_depflags = parse(
+            r#"[{
+                "directory": "/build/lib",
+                "file": "/src/a.c",
+                "arguments": ["cc", "-o", "a.o", "-c", "/src/a.c"],
+                "output": "a.o"
+            }]"#,
+        )
+        .unwrap();
+        let norm = Normalization { drop_dependency_flags: true, ..Default::default() };
+
+        let mut left = with_depflags;
+        left.normalize(&norm);
+        let mut right = without_depflags;
+        right.normalize(&norm);
+        let sut = compare(&left, &right);
+
+        assert!(sut.is_equivalent(), "report: {sut:?}");
     }
 
     #[test]
