@@ -234,36 +234,42 @@ fn output_from_o(directory: &str, arguments: &[String]) -> Option<String> {
         }
     }
     let value = value?;
-    let joined =
-        if Path::new(value).is_absolute() { PathBuf::from(value) } else { Path::new(directory).join(value) };
+    // POSIX path semantics, NOT the host's: a compilation database always names
+    // files with `/` separators (it is produced inside a Linux container), and
+    // the comparator must derive the same object path whether it runs on Linux,
+    // macOS, or Windows. Going through `std::path` would join with the host
+    // separator (`\` on Windows) and misjudge a leading-`/` path as relative
+    // there, so resolve and normalize purely as `/`-delimited strings.
+    let joined = if value.starts_with('/') {
+        value.to_string()
+    } else {
+        format!("{}/{value}", directory.trim_end_matches('/'))
+    };
     Some(lexically_normalize(&joined))
 }
 
-/// Collapse `.`, `..`, and redundant separators in an absolute path purely
+/// Collapse `.`, `..`, and redundant separators in a `/`-delimited path purely
 /// lexically - without `canonicalize`/stat - because the paths name files
 /// inside a throwaway container that does not exist on this host. A leading `..`
 /// (a path that escapes its root) is kept as-is rather than discarded.
-fn lexically_normalize(path: &Path) -> String {
-    use std::path::Component;
-
-    let mut stack: Vec<Component> = Vec::new();
-    for component in path.components() {
-        match component {
-            Component::CurDir => {}
-            Component::ParentDir => match stack.last() {
-                Some(Component::Normal(_)) => {
+fn lexically_normalize(path: &str) -> String {
+    let is_absolute = path.starts_with('/');
+    let mut stack: Vec<&str> = Vec::new();
+    for segment in path.split('/') {
+        match segment {
+            // Skip empty segments (redundant separators) and current-dir markers.
+            "" | "." => {}
+            ".." => match stack.last() {
+                Some(&last) if last != ".." => {
                     stack.pop();
                 }
-                _ => stack.push(component),
+                _ => stack.push(segment),
             },
             other => stack.push(other),
         }
     }
-    let mut result = PathBuf::new();
-    for component in stack {
-        result.push(component.as_os_str());
-    }
-    result.to_string_lossy().into_owned()
+    let joined = stack.join("/");
+    if is_absolute { format!("/{joined}") } else { joined }
 }
 
 /// Remove the dependency-file generation flags from `arguments`. `-MD`, `-MMD`,
