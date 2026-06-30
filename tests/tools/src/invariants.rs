@@ -137,8 +137,12 @@ impl CountExpectation {
 /// has a matching entry) is not built here; the entry-count band approximates
 /// "every translation unit appears" for this MVP.
 pub fn check(database: &CompilationDatabase, expectation: &CountExpectation) -> InvariantsReport {
-    let checks =
-        vec![non_empty_arguments(database), no_true_duplicates(database), entry_count(database, expectation)];
+    let checks = vec![
+        non_empty_arguments(database),
+        non_empty_directory(database),
+        no_true_duplicates(database),
+        entry_count(database, expectation),
+    ];
     let pass = checks.iter().all(|check| check.status != Status::Fail);
     InvariantsReport { pass, checks }
 }
@@ -153,6 +157,21 @@ fn non_empty_arguments(database: &CompilationDatabase) -> Check {
         .collect();
     let status = if offenders.is_empty() { Status::Pass } else { Status::Fail };
     Check { name: "non-empty-arguments".to_string(), status, offenders, detail: None }
+}
+
+/// Every entry must carry a non-empty `directory`. A blank `directory` makes the
+/// recorded command non-replayable: a consumer that does `cd "$directory"` lands
+/// in an unrelated tree, and the replay loop's `cd ""` is a silent no-op that
+/// would validate the entry against the wrong working directory.
+fn non_empty_directory(database: &CompilationDatabase) -> Check {
+    let offenders: Vec<Offender> = database
+        .entries
+        .iter()
+        .filter(|entry| entry.directory.is_empty())
+        .map(|entry| Offender { file: entry.file.clone(), output: None, count: None })
+        .collect();
+    let status = if offenders.is_empty() { Status::Pass } else { Status::Fail };
+    Check { name: "non-empty-directory".to_string(), status, offenders, detail: None }
 }
 
 /// No two entries may be true duplicates. Entries are grouped by the full triple
@@ -271,6 +290,19 @@ mod tests {
         assert_eq!(check.offenders[0].file, "/src/a.c");
         assert_eq!(check.offenders[0].output, None);
         assert_eq!(check.offenders[0].count, None);
+    }
+
+    #[test]
+    fn non_empty_directory_fails_on_blank_and_passes_otherwise() {
+        let blank = Entry { directory: String::new(), ..entry("/src/a.c", Some("a.o"), &["cc"]) };
+        let cases: &[(Vec<Entry>, Status)] =
+            &[(vec![blank], Status::Fail), (vec![entry("/src/a.c", Some("a.o"), &["cc"])], Status::Pass)];
+
+        for (entries, expected) in cases {
+            let sut = check(&database(entries.clone()), &CountExpectation::default());
+
+            assert_eq!(find(&sut, "non-empty-directory").status, *expected, "entries: {entries:?}");
+        }
     }
 
     #[test]

@@ -214,20 +214,22 @@ a divergent second build, which is exactly what `--inject-fault` exercises.
 ## dogfood-invariants (Stage 4)
 
 For any target, the suite asserts structural invariants on Bear's single
-capture: every entry has non-empty `arguments`, there are no TRUE duplicates
-(identical `file` + `output` + normalized `arguments` - a source compiled into
-different outputs with different flags is legitimate, not a duplicate), and the
-entry count is within a configured tolerance of the number of object files the
-build produced. Each invariant is independently reported. No golden, no oracle,
-no maintained baseline.
+capture: every entry has non-empty `arguments`, every entry has a non-empty
+`directory` (a blank `directory` is non-replayable - a `cd ""` consumer lands in
+the wrong tree), there are no TRUE duplicates (identical `file` + `output` +
+normalized `arguments` - a source compiled into different outputs with different
+flags is legitimate, not a duplicate), and the entry count is within a configured
+tolerance of the number of object files the build produced. Each invariant is
+independently reported. No golden, no oracle, no maintained baseline.
 
 Implementation: `run.sh --invariants <target>` runs the shared preflight, image
 builds, and smoke, builds+captures once (`build_and_capture`), then gates on the
 exit code of one host `cdb-compare invariants --drop-dependency-flags
 --expected-objects <N> --tolerance <PCT> --format human <capture>`. The whole
-structural check - non-empty-arguments, no-true-duplicates, and the entry-count
-band - lives in the unit-tested comparator; the harness only supplies `<N>` and
-`<PCT>` and gates the exit code (no JSON parsed in shell). Exit 0 => PASS;
+structural check - non-empty-arguments, non-empty-directory, no-true-duplicates,
+and the entry-count band - lives in the unit-tested comparator; the harness only
+supplies `<N>` and `<PCT>` and gates the exit code (no JSON parsed in shell).
+Exit 0 => PASS;
 exit 1 => FAIL (Bear produced a malformed CDB); a non-1 error or a build/infra
 failure maps to ERROR/INCONCLUSIVE via `build_and_capture`. The human report is
 saved to `results/<target>/<label>/invariants-report.txt`.
@@ -250,9 +252,9 @@ the per-target `OBJECT_TOLERANCE_PCT`.
 Graceful degradation: the entry-count cross-check is opt-in and must never block
 the always-on structural checks. If `OBJECT_COUNT_CMD` cannot produce a number
 (0 / empty), `run.sh` warns and runs `cdb-compare invariants` WITHOUT
-`--expected-objects` (entry-count skipped), still gating on non-empty-arguments
-and no-true-duplicates. A target whose independent object count is genuinely
-hard still gets the structural invariants.
+`--expected-objects` (entry-count skipped), still gating on non-empty-arguments,
+non-empty-directory, and no-true-duplicates. A target whose independent object
+count is genuinely hard still gets the structural invariants.
 
 Scale: validated on two larger gate-less (`VALIDATION=none`) targets - ffmpeg
 (~1945 TUs, exact: entries == objects == 1945) and the Linux kernel (x86_64
@@ -422,6 +424,10 @@ the product of fragile in-shell JSON surgery on a real capture):
   invariants` FAILS its no-true-duplicates check.
 - `faults/empty-arguments.json` - an entry with `"arguments": []` => invariants
   FAILS non-empty-arguments.
+- `faults/blank-directory.json` - an entry with `"directory": ""` => invariants
+  FAILS non-empty-directory (a `cd ""` consumer lands in the wrong tree, so the
+  entry is non-replayable). Distinct from `bad-directory.json`, which holds a
+  nonexistent path to exercise REPLAY.
 - `faults/undercount.json` - 2 entries asserted against `--expected-objects 3
   --tolerance 0` => invariants FAILS entry-count (the "dropped entry" fault).
 - `faults/bad-directory.json` - a valid entry whose `directory` does not exist

@@ -81,7 +81,13 @@ assert_caught "corrupted directory (replay)" \
 rm -f "$REPLAY_OUT"
 printf '\n' >&2
 
-# 5. Control: an honest 2-entry CDB with NO expected-count must PASS invariants
+# 5. Blank directory => non-empty-directory invariant FAILS (a `cd ""` consumer
+#    silently lands in the wrong tree, so the entry is non-replayable).
+assert_caught "blank directory (non-empty-directory)" \
+    "$CDB_COMPARE" invariants --format human "$FAULTS/blank-directory.json"
+printf '\n' >&2
+
+# 6. Control: an honest 2-entry CDB with NO expected-count must PASS invariants
 #    (a sanity check that the invariants do not false-fire on a clean input).
 if "$CDB_COMPARE" invariants --format human "$FAULTS/undercount.json" >/dev/null 2>&1; then
     printf 'CONTROL OK  honest CDB passes invariants (no false positive)\n' >&2

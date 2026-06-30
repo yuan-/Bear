@@ -60,6 +60,9 @@ default. Both subcommands accept:
   duplicate key uses normalized arguments. Checks:
   - `non-empty-arguments` (always): fails if any entry has empty `arguments`;
     offenders are those entries' `file`s.
+  - `non-empty-directory` (always): fails if any entry has a blank `directory`;
+    offenders are those entries' `file`s. A blank `directory` is non-replayable
+    (a `cd ""` consumer lands in the wrong tree).
   - `no-true-duplicates` (always): groups entries by the full triple
     `(file, output, arguments)` post-normalization; any group of two or more
     is a true duplicate. The legitimate multi-output case (same `file`,
