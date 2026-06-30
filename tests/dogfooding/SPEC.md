@@ -1,4 +1,4 @@
-# Dogfooding harness specification - Stages 2, 3, and 4
+# Dogfooding harness specification - Stages 2 through 6
 
 These are the `dogfood-*` contracts the harness under `tests/dogfooding/`
 satisfies. They are contracts on the TEST HARNESS, not on Bear, so they
@@ -295,6 +295,120 @@ entry); all OK with inconclusive allowed => PASS; EVERY sampled entry
 inconclusive (nothing actually verified) => INCONCLUSIVE (replay must not pass
 vacuously). On the pinned builds all 20 sampled entries replay OK for both zlib
 and curl (0 FAIL, 0 INCONCLUSIVE).
+
+## dogfood-clang-consumer (Stage 6)
+
+The one real deliverable of the slimmed Stage 6. Feed a sample of the captured
+database to a REAL clang-tooling consumer over the recorded entries, IN-container,
+and assert the tool accepts each. This is the only check that validates the
+database WORKS in the tool it exists for - catching a structurally-valid but
+semantically-broken DB (a wrong/missing `-I`, a dropped `-x`, a missing sysroot)
+that the structural invariants and the replay check both miss. Same shape as
+dogfood-replay: reuse `cdb-compare sample`, categorize OK / FAIL / INCONCLUSIVE,
+non-vacuous (an all-inconclusive or empty sample is INCONCLUSIVE, never a vacuous
+PASS).
+
+Implementation: `run.sh --consumer[=N] <target>` (default N=20; also `--consumer
+N`) runs the shared pipeline, builds+captures once, and runs the consumer INSIDE
+the build container as part of the same `podman run` - the recorded sources and
+generated headers exist there only before teardown, AND the clang tooling lives
+in the image (the host has no clang). The consumer loop is one POSIX function
+(`consumer-loop.sh`) read into the in-container script, mirroring how
+`replay-loop.sh` is wired. It is additive/standalone like `--replay`: mutually
+exclusive with the other check modes, allowed on `VALIDATION=none` targets, and
+gated on an in-container return code mapped to PASS/FAIL/INCONCLUSIVE/ERROR.
+
+The consumer (chosen empirically, not guessed - the targets build with GCC, so
+clang tooling must consume a gcc-built database) is:
+
+```sh
+clang-tidy --checks='-*,bugprone-assert-side-effect' --allow-no-checks \
+    -p <cdb-dir> <file>
+```
+
+clang-tidy reads the gcc-recorded command from the CDB at `-p <cdb-dir>` and
+mangles the driver-incompatible flags itself (dropping GCC-only flags clang does
+not know) - that cross-compiler consumption is precisely what the check
+validates. A single real check forces a full front-end parse (with NO check
+enabled clang-tidy short-circuits and never parses, so the gate would be
+vacuous); `--allow-no-checks` keeps the run from erroring should that check name
+disappear from a future clang-tools. `clangd --check` was rejected as the
+consumer: it runs clangd's INTERNAL tweak/refactoring self-tests over the TU and
+reports their failures as "N errors" with a non-zero exit even when the AST built
+perfectly (every curl TU "built the AST" yet reported up to 60 such bogus
+errors), making its exit code useless as a database-validity signal. clang-tidy
+with no lint check does a pure parse, so the only `error:` diagnostics are
+genuine front-end errors.
+
+Categorization (keyed on clang-tidy's `error:` diagnostics):
+- **OK** - zero `error:` diagnostics: clang-tidy parsed the TU and built the AST
+  from Bear's recorded command. Warnings are expected on a gcc TU under clang and
+  are NOT a defect.
+- **FAIL** - one or more `error:` diagnostics, INCLUDING a not-found `#include`.
+  This relies on the loop's premise: the consumer runs in the LIVE post-build
+  container, so every header the build saw (source-tree AND generated) is still
+  on disk. A "file not found" therefore is NOT a generated-header-gone artifact
+  (that only happens after teardown); it means Bear's recorded include paths do
+  not let the tool find a header the build found - the wrong/missing-`-I` defect
+  the check exists for.
+- **INCONCLUSIVE** - the TU source itself is no longer on disk (the one genuine
+  missing-input case, since a TU source, unlike a header, can be a generated
+  file). Kept narrow so the not-found-header FAIL signal is not diluted.
+
+Gate (mirroring the oracle / replay non-vacuity): any FAIL => FAIL; all OK
+(inconclusive allowed) => PASS; EVERY sampled entry inconclusive (nothing
+consumed) => INCONCLUSIVE. The tally and any rejected entries are written to
+`results/<target>/<label>/consumer_result`, the return code to `consumer_rc`,
+both pulled out and gated on without parsing JSON.
+
+Signal quality on a gcc-built target: meaningful, not noise-dominated. On the
+pinned curl build all 20 sampled entries come back OK (`ok=20 fail=0
+inconclusive=0`): clang-tidy consumes the gcc-recorded database cleanly, parses
+every TU without error, and only the deliberate fault flips a verdict. The
+build-dir-aware sampler (`--build-dir <BUILD_DIR>`) avoids generated-header-heavy
+TUs, which keeps good entries from tripping the not-found FAIL.
+
+Boundary to scrutinize (the OK<->FAIL line): because a not-found header is FAIL,
+a future target whose sampled TUs legitimately depend on a generated header the
+build CLEANS before this loop runs would false-FAIL. That does not happen for
+curl/zlib (the build leaves its tree intact and the sampler prefers source-tree
+TUs); it is the honest trade - keeping not-found as INCONCLUSIVE would have
+masked the very wrong-`-I` defect the check is for. If such a target appears,
+narrow the FAIL rule to "not-found header NOT reachable from a build-dir
+include", rather than blanket-INCONCLUSIVE-ing not-found.
+
+Image requirement: the base image installs `clang clang-tools-extra` in its final
+stage (a CONSUMER tool, like `cdb-compare`, NOT a toolchain - so it goes in the
+final stage, not the toolchain-only builder), with a `clang-tidy --version` sanity
+in the final stage. Every per-target image layers on this base, so the check needs
+no per-target change; `BUILD_DIR` from config.env (reused as the sampler's
+`--build-dir`) is the only per-target input.
+
+## dogfood-clang-consumer fault demonstration (Stage 6 exit criterion)
+
+The exit criterion requires the check to catch a deliberately broken entry: a
+stripped `-I` the tool then rejects. Unlike the replay bad-directory fault (a
+host-side fixture in `selftest.sh`), this demo MUST run where clang exists - IN
+the build container - because the host has no compiler. It is therefore a small,
+clearly-labeled in-container one-off, `consumer-fault-demo.sh`, run by the
+maintainer against the curl target image:
+
+```sh
+podman run --rm --systemd=always \
+    -v tests/dogfooding/consumer-loop.sh:/consumer-loop.sh:ro,Z \
+    -v tests/dogfooding/consumer-fault-demo.sh:/demo.sh:ro,Z \
+    bear-dogfood-curl:<sha> sh /demo.sh
+```
+
+It builds curl (so the capture, sources, and headers exist), takes a KNOWN-GOOD
+entry the consumer accepts (`altsvc.c` => OK), strips the `-I/src*` flags that
+TU needs to find `curl/system.h`, and shows the SAME shipped `consumer_cdb`
+function now reports FAIL for that entry. No JSON is hand-edited beyond removing
+the one include group; the fault is a real, broken database entry. The demo
+exits 0 iff the good entry was OK (rc 0) and the broken entry was caught (rc 1).
+Observed: `good: rc=0 (ok=1 fail=0 inconclusive=0)`, `bad: rc=1 (ok=0 fail=1
+inconclusive=0)`, diagnostic `error: 'curl/system.h' file not found`,
+`DEMO PASSED`.
 
 ## dogfood-injected-fault demonstration (Stage 4 exit criterion)
 

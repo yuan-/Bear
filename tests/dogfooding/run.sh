@@ -27,12 +27,20 @@
 #                   container (dogfood-replay). PASS iff all sampled entries
 #                   replay (>=1 verified); FAIL = a malformed entry; all-
 #                   inconclusive = INCONCLUSIVE.
+#   --consumer[=N]  sample up to N entries (default 20) and feed each to a real
+#                   clang-tooling consumer (clang-tidy) reading the captured
+#                   compile_commands.json, INSIDE the build container
+#                   (dogfood-clang-consumer). PASS iff the tool built the AST for
+#                   every sampled entry (>=1 verified); FAIL = the tool rejects a
+#                   well-formed entry (a semantically broken DB, e.g. a wrong/
+#                   missing -I); all-inconclusive = INCONCLUSIVE.
 #
 # Usage:
 #   tests/dogfooding/run.sh [--label L] [--rebless] [--keep] [zlib|curl]
 #   tests/dogfooding/run.sh --determinism [--inject-fault] [--label L] [--keep] T
 #   tests/dogfooding/run.sh --invariants [--label L] [--keep] T
 #   tests/dogfooding/run.sh --replay[=N] [--label L] [--keep] T
+#   tests/dogfooding/run.sh --consumer[=N] [--label L] [--keep] T
 #   tests/dogfooding/run.sh --metrics [--invariants] [--label L] T  # + rprof profile
 #   tests/dogfooding/selftest.sh    # no container: prove the checks catch faults
 #
@@ -44,6 +52,9 @@
 #   --invariants    assert structural invariants on one capture (dogfood-invariants)
 #   --replay[=N]    replay up to N sampled entries in-container (dogfood-replay;
 #                   default N=20; also accepts `--replay N`)
+#   --consumer[=N]  feed up to N sampled entries to a clang-tooling consumer
+#                   (clang-tidy) in-container (dogfood-clang-consumer;
+#                   default N=20; also accepts `--consumer N`)
 #   --metrics       additionally profile bear-driver's CPU/memory with rprof and
 #                   keep the full JSONL at results/<target>/<label>/metrics.jsonl
 #                   (dogfood-metrics-collect); layers on any mode, or stands alone
@@ -76,6 +87,8 @@ INJECT_FAULT=0
 INVARIANTS=0
 REPLAY=0
 REPLAY_COUNT=20
+CONSUMER=0
+CONSUMER_COUNT=20
 METRICS=0
 TARGET=""
 
@@ -89,6 +102,8 @@ while [ $# -gt 0 ]; do
         --invariants) INVARIANTS=1 ;;
         --replay) REPLAY=1 ;;
         --replay=*) REPLAY=1; REPLAY_COUNT="${1#--replay=}" ;;
+        --consumer) CONSUMER=1 ;;
+        --consumer=*) CONSUMER=1; CONSUMER_COUNT="${1#--consumer=}" ;;
         --metrics) METRICS=1 ;;
         --keep) KEEP=1 ;;
         -h|--help)
@@ -103,6 +118,13 @@ while [ $# -gt 0 ]; do
                     *) REPLAY_COUNT="$1"; shift; continue ;;
                 esac
             fi
+            # A bare integer right after --consumer is its count (--consumer N).
+            if [ "$CONSUMER" -eq 1 ] && [ "$CONSUMER_COUNT" = "20" ]; then
+                case "$1" in
+                    *[!0-9]*) ;;  # not a number: fall through to target handling
+                    *) CONSUMER_COUNT="$1"; shift; continue ;;
+                esac
+            fi
             if [ -n "$TARGET" ]; then finish ERROR "only one target supported, got extra: $1"; fi
             TARGET="$1" ;;
     esac
@@ -110,17 +132,19 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$TARGET" ] || TARGET="zlib"
 
-# --determinism, --invariants, and --replay are each a standalone Stage 4 check
-# that builds+captures once (or twice, for determinism) and SKIPS the
-# golden/oracle gate. They are mutually exclusive with each other and with
-# --rebless (no golden is involved). --inject-fault is a self-test of
-# --determinism only.
-MODE_COUNT=$((DETERMINISM + INVARIANTS + REPLAY))
+# --determinism, --invariants, --replay, and --consumer are each a standalone
+# Stage 4/6 check that builds+captures once (or twice, for determinism) and
+# SKIPS the golden/oracle gate. They are mutually exclusive with each other and
+# with --rebless (no golden is involved). --inject-fault is a self-test of
+# --determinism only. --consumer (dogfood-clang-consumer) is wired exactly like
+# --replay: additive/standalone, allowed on VALIDATION=none targets, gated on an
+# in-container return code mapped to PASS/FAIL/INCONCLUSIVE/ERROR.
+MODE_COUNT=$((DETERMINISM + INVARIANTS + REPLAY + CONSUMER))
 if [ "$MODE_COUNT" -gt 1 ]; then
-    finish ERROR "--determinism, --invariants, and --replay are mutually exclusive"
+    finish ERROR "--determinism, --invariants, --replay, and --consumer are mutually exclusive"
 fi
 if [ "$MODE_COUNT" -ge 1 ] && [ "$REBLESS" -eq 1 ]; then
-    finish ERROR "--rebless applies only to the default golden gate, not the Stage 4 checks"
+    finish ERROR "--rebless applies only to the default golden gate, not the Stage 4/6 checks"
 fi
 if [ "$INJECT_FAULT" -eq 1 ] && [ "$DETERMINISM" -eq 0 ]; then
     finish ERROR "--inject-fault is only meaningful with --determinism"
@@ -130,6 +154,12 @@ case "$REPLAY_COUNT" in
 esac
 if [ "$REPLAY" -eq 1 ] && [ "$REPLAY_COUNT" -lt 1 ]; then
     finish ERROR "--replay count must be >= 1"
+fi
+case "$CONSUMER_COUNT" in
+    ''|*[!0-9]*) finish ERROR "--consumer count must be a positive integer: '$CONSUMER_COUNT'" ;;
+esac
+if [ "$CONSUMER" -eq 1 ] && [ "$CONSUMER_COUNT" -lt 1 ]; then
+    finish ERROR "--consumer count must be >= 1"
 fi
 
 # Both values become path segments and a container-name segment; reject anything
@@ -158,7 +188,7 @@ esac
 # meaningful, so direct the caller to a Stage 4 check rather than failing later
 # on a missing golden.
 if [ "$MODE_COUNT" -eq 0 ] && [ "$VALIDATION" = "none" ] && [ "$METRICS" -eq 0 ]; then
-    finish ERROR "target '$TARGET' has no golden/oracle gate; run it with --invariants, --determinism, --replay, or --metrics"
+    finish ERROR "target '$TARGET' has no golden/oracle gate; run it with --invariants, --determinism, --replay, --consumer, or --metrics"
 fi
 
 GOLDEN="$HERE/goldens/$TARGET/compile_commands.json"
@@ -181,7 +211,7 @@ CONTAINER="bear-dogfood-$TARGET-$LABEL-$$"
 # Determinism runs the build twice, in two distinct fresh containers.
 CONTAINER2="bear-dogfood-$TARGET-$LABEL-$$-2"
 
-info "target=$TARGET label=$LABEL bear=$BEAR_SHA rebless=$REBLESS determinism=$DETERMINISM invariants=$INVARIANTS replay=$REPLAY replay_count=$REPLAY_COUNT inject_fault=$INJECT_FAULT keep=$KEEP"
+info "target=$TARGET label=$LABEL bear=$BEAR_SHA rebless=$REBLESS determinism=$DETERMINISM invariants=$INVARIANTS replay=$REPLAY replay_count=$REPLAY_COUNT consumer=$CONSUMER consumer_count=$CONSUMER_COUNT inject_fault=$INJECT_FAULT keep=$KEEP"
 
 # Cleanup of the throwaway container(s) unless --keep. Cached images are left in
 # place (mentioned in the final report); the harness only removes what it spun
@@ -486,6 +516,79 @@ cat /out/replay_result"
         2) finish INCONCLUSIVE "every sampled entry was inconclusive (missing generated inputs); replay verified nothing ($TALLY)" ;;
         3) finish ERROR "in-container cdb-compare sample failed; replay could not start - see $REPLAY_RESULT" ;;
         *) finish ERROR "replay loop did not run to completion (rc='$REPLAY_RC'); see $REPLAY_RESULT" ;;
+    esac
+fi
+
+# === STEP 5 (consumer): ONE BUILD + CLANG CONSUMER OVER A SAMPLE ==============
+# (dogfood-clang-consumer) Stage 6's one real deliverable. Build+capture once,
+# then sample Bear's entries and feed each to a REAL clang-tooling consumer
+# (clang-tidy) reading the captured compile_commands.json, asserting the tool
+# can build the AST. This is the only check that validates the database WORKS in
+# the tool it exists for - catching a structurally-valid but semantically-broken
+# DB (a wrong/missing -I, a dropped -x or sysroot) that the other checks miss.
+#
+# Like replay, it runs INSIDE the build container as part of the SAME podman run,
+# because the consumer needs the recorded sources and generated headers, which
+# exist there only before teardown - and because the clang tooling lives in the
+# image (the host has no clang). The consumer loop (consumer-loop.sh) is read
+# into the in-container script; the in-image clang-tidy consumes the gcc-recorded
+# database, mangling driver-incompatible flags itself.
+#
+# Categorization (per consumer-loop.sh): OK (AST built) / INCONCLUSIVE (missing
+# generated header, or a benign gcc-vs-clang flag clang-tidy cannot consume - a
+# cross-compiler difference, NOT a DB defect) / FAIL (the tool rejects a
+# well-formed entry: the canonical case is a wrong/missing -I). Gate (mirroring
+# replay): any FAIL => FAIL; all OK (inconclusive allowed) => PASS; every sampled
+# entry inconclusive (nothing consumed) => INCONCLUSIVE (no vacuous PASS).
+
+if [ "$CONSUMER" -eq 1 ]; then
+    FRESH="$RESULTS_DIR/compile_commands.json"
+    BUILD_LOG="$RESULTS_DIR/build.log"
+    CONSUMER_BUILD_DIR="${BUILD_DIR:?config.env must set BUILD_DIR for consumer mode}"
+
+    # Verify the in-image cdb-compare and clang-tidy exist before relying on them.
+    if ! podman run --rm "$TARGET_TAG" test -x /opt/bear/bin/cdb-compare; then
+        finish ERROR "in-image cdb-compare missing at /opt/bear/bin/cdb-compare"
+    fi
+    if ! podman run --rm "$TARGET_TAG" sh -c 'command -v clang-tidy >/dev/null 2>&1'; then
+        finish ERROR "in-image clang-tidy missing (base image must install clang-tools-extra)"
+    fi
+
+    # Build the in-container post-build snippet: the consumer function definition
+    # (from consumer-loop.sh) followed by one call against Bear's capture. The
+    # function writes its OK/FAIL/INCONCLUSIVE tally and any rejected entries to
+    # /out/consumer_result; its return code is recorded to /out/consumer_rc so the
+    # host gates on it without parsing JSON. The capture stays at /out alongside
+    # consumer_result; clang-tidy reads it via the -p flag the consumer loop passes.
+    [ -f "$HERE/consumer-loop.sh" ] || finish ERROR "consumer-loop.sh missing next to run.sh (commit the harness)"
+    CONSUMER_FN="$(cat "$HERE/consumer-loop.sh")"
+    CONSUMER_POST="$CONSUMER_FN
+consumer_cdb /opt/bear/bin/cdb-compare /out/compile_commands.json $CONSUMER_COUNT \"$CONSUMER_BUILD_DIR\" /out/consumer_result
+echo \$? > /out/consumer_rc
+cat /out/consumer_result"
+
+    build_and_capture "$CONTAINER" "$FRESH" "$BUILD_LOG" "" "$CONSUMER_POST" "$METRICS_DEST"
+
+    CONSUMER_RESULT="$RESULTS_DIR/consumer_result"
+    CONSUMER_RC_FILE="$RESULTS_DIR/consumer_rc"
+    if ! podman cp "$CONTAINER:/out/consumer_result" "$CONSUMER_RESULT" >&2; then
+        finish ERROR "could not copy consumer_result out of the container"
+    fi
+    if ! podman cp "$CONTAINER:/out/consumer_rc" "$CONSUMER_RC_FILE" >&2; then
+        finish ERROR "could not copy consumer_rc out of the container"
+    fi
+    cat "$CONSUMER_RESULT" >&2
+    CONSUMER_RC="$(tr -d ' \n\r\t' < "$CONSUMER_RC_FILE")"
+    TALLY="$(sed -n 's/^consumer: //p' "$CONSUMER_RESULT")"
+    info "consumer: $TALLY (build-dir $CONSUMER_BUILD_DIR, sampled up to $CONSUMER_COUNT)"
+
+    case "$CONSUMER_RC" in
+        0) finish PASS "clang-tidy built the AST for all sampled entries (at least one verified): $TALLY" ;;
+        1) err "clang-tidy rejected a well-formed entry (semantically broken DB); see $CONSUMER_RESULT"
+           finish FAIL "clang consumer failed - the database does not work in the tool ($TALLY); see $CONSUMER_RESULT" ;;
+        2) finish INCONCLUSIVE "every sampled entry was inconclusive (missing inputs / gcc-vs-clang flags); the consumer verified nothing ($TALLY)" ;;
+        3) finish ERROR "in-container cdb-compare sample failed; the consumer could not start - see $CONSUMER_RESULT" ;;
+        *) finish ERROR "consumer loop did not run to completion (rc='$CONSUMER_RC'); see $CONSUMER_RESULT" ;;
     esac
 fi
 

@@ -1,4 +1,4 @@
-# Bear dogfooding harness (Stages 2-4)
+# Bear dogfooding harness (Stages 2-6)
 
 A non-automated, release-time harness that runs Bear's *installed release*
 binaries against a real project at a pinned revision inside a throwaway
@@ -17,8 +17,8 @@ Each target picks a validation mode with a `VALIDATION` selector in its
   reference, so there is no hand-maintained baseline.
 - **none** (scale targets ffmpeg and the Linux kernel, Stage 4): no golden and
   no oracle (too large to bless / not CMake). These are run ONLY with the
-  target-agnostic Stage 4 checks (`--invariants` / `--determinism` / `--replay`);
-  a no-mode run is rejected with a pointer to those. They prove the checks hold
+  target-agnostic checks (`--invariants` / `--determinism` / `--replay` /
+  `--consumer`); a no-mode run is rejected with a pointer to those. They prove the checks hold
   from midsize (ffmpeg, ~1945 TUs, custom `configure`) to kernel scale (x86_64
   defconfig, ~3000 TUs) - including that Bear stays deterministic and its
   process-tree teardown holds under a high-`-j` kernel build.
@@ -96,6 +96,11 @@ tests/dogfooding/run.sh --invariants curl
 tests/dogfooding/run.sh --replay zlib
 tests/dogfooding/run.sh --replay=30 curl
 
+# Feed a sample of entries to a clang-tooling consumer (clang-tidy) and assert
+# the tool accepts each (default 20; --consumer=N or --consumer N).
+tests/dogfooding/run.sh --consumer curl
+tests/dogfooding/run.sh --consumer=30 zlib
+
 # Self-test: prove the checks catch injected faults (no container, fast).
 tests/dogfooding/selftest.sh
 ```
@@ -111,9 +116,9 @@ The harness prints one final `OUTCOME:` line and exits with:
 
 | Outcome      | Exit | Meaning |
 |--------------|------|---------|
-| PASS         | 0    | golden: fresh capture matches the golden. oracle: matched TUs equivalent to the CMake oracle. determinism: the two captures are equivalent. invariants: all structural invariants hold. replay: every sampled entry replayed (>=1 verified). No regression. |
-| FAIL         | 1    | golden: golden mismatch (review the diff, then fix Bear or rebless). oracle: matched TUs diverge from CMake's database (inspect the `matched but differing` section of `oracle-report.txt`). determinism: the two captures differ across two identical builds (see `determinism-diff.txt`). invariants: a structural invariant failed - Bear produced a malformed CDB (see `invariants-report.txt`). replay: a recorded command failed to replay - a malformed entry (see `replay_result`). A real behavioral change / defect in Bear's output. |
-| INCONCLUSIVE | 2    | The target build failed for its own reasons (source fetch, sha, network, configure/make, OOM). For replay, also: every sampled entry was inconclusive (all failures were missing generated inputs, so nothing was actually verified). Not a Bear regression. |
+| PASS         | 0    | golden: fresh capture matches the golden. oracle: matched TUs equivalent to the CMake oracle. determinism: the two captures are equivalent. invariants: all structural invariants hold. replay: every sampled entry replayed (>=1 verified). consumer: clang-tidy built the AST for every sampled entry (>=1 verified). No regression. |
+| FAIL         | 1    | golden: golden mismatch (review the diff, then fix Bear or rebless). oracle: matched TUs diverge from CMake's database (inspect the `matched but differing` section of `oracle-report.txt`). determinism: the two captures differ across two identical builds (see `determinism-diff.txt`). invariants: a structural invariant failed - Bear produced a malformed CDB (see `invariants-report.txt`). replay: a recorded command failed to replay - a malformed entry (see `replay_result`). consumer: clang-tidy rejected a well-formed entry - a semantically broken DB, e.g. a wrong/missing `-I` (see `consumer_result`). A real behavioral change / defect in Bear's output. |
+| INCONCLUSIVE | 2    | The target build failed for its own reasons (source fetch, sha, network, configure/make, OOM). For replay, also: every sampled entry was inconclusive (all failures were missing generated inputs, so nothing was actually verified). For consumer, also: every sampled entry was inconclusive (the TU source was no longer on disk), so nothing was actually consumed. Not a Bear regression. |
 | ERROR        | 3    | Harness or Bear-infra failure: podman missing, disk/digest preflight, base image build, empty capture (libexec/INTERCEPT_LIBDIR mismatch), an oracle that matched 0 TUs (nothing compared), missing host or in-image `cdb-compare`, or a non-numeric/zero object count. |
 
 Run artifacts land under `results/<target>/<label>/` (git-ignored). Goldens
@@ -306,6 +311,94 @@ Gate (non-vacuity, mirroring the oracle): any real FAIL => FAIL; all OK
 verified) => INCONCLUSIVE. The tally and any failing commands are saved to
 `results/<target>/<label>/replay_result`. On the pinned builds all 20 sampled
 entries replay OK for both targets.
+
+## The clang-consumer check (dogfood-clang-consumer)
+
+`run.sh --consumer[=N] <target>` (default N=20; also `--consumer N`)
+builds+captures once, then feeds a sample of Bear's entries to a real
+clang-tooling consumer and asserts the tool can build the AST from each. This is
+the one check that validates the database WORKS in the tool it exists for -
+catching a structurally-valid but semantically-broken DB (a wrong/missing `-I`,
+a dropped `-x`, a missing sysroot) that the invariants and replay checks miss.
+Like replay, it runs INSIDE the build container as part of the same `podman run`,
+because the consumer needs the recorded sources and generated headers (present
+only before teardown) AND because the clang tooling lives in the image (the host
+has no clang).
+
+```sh
+tests/dogfooding/run.sh --consumer curl      # PASS: ok=20 fail=0 inconclusive=0
+tests/dogfooding/run.sh --consumer=30 zlib   # build-dir-aware sample of 30
+```
+
+The targets build with GCC, so clang tooling must consume a gcc-built
+`compile_commands.json`. The consumer (chosen empirically) is:
+
+```sh
+clang-tidy --checks='-*,bugprone-assert-side-effect' --allow-no-checks \
+    -p <cdb-dir> <file>
+```
+
+clang-tidy reads the gcc-recorded command from the CDB at `-p <cdb-dir>` and
+mangles the driver-incompatible flags itself (it drops GCC-only flags clang does
+not know) - that cross-compiler consumption is exactly what the check validates.
+A single real check forces a full front-end parse (with no check enabled
+clang-tidy short-circuits and never parses); `--allow-no-checks` keeps the run
+from erroring should that check name ever disappear. `clangd --check` was
+rejected as the consumer: it runs clangd's internal tweak self-tests and reports
+their failures as "N errors" with a non-zero exit even when the AST built
+perfectly, so its exit code is not a database-validity signal.
+
+The in-image `cdb-compare sample <capture> --count N --build-dir <BUILD_DIR>`
+selects up to N replayable entries (build-dir-aware, the same sampler replay
+uses) and emits one shell-quoted line per entry. The loop identifies the source
+file in each argv and runs the consumer over it, tallied:
+
+- **OK** - zero `error:` diagnostics: clang-tidy parsed the TU and built the AST.
+  Warnings are expected on a gcc TU under clang and are not a defect.
+- **FAIL** - one or more `error:` diagnostics, INCLUDING a not-found `#include`.
+  The consumer runs in the LIVE post-build container, so every header the build
+  saw is still on disk; a "file not found" is therefore a wrong/missing-`-I`
+  defect, not a generated-header artifact. This is the signal the check exists
+  for.
+- **INCONCLUSIVE** - the TU source itself is no longer on disk (the one genuine
+  missing-input case). Kept narrow so the not-found-header FAIL is not diluted.
+
+Gate (non-vacuity, mirroring the oracle): any FAIL => FAIL; all OK (inconclusive
+allowed) => PASS; EVERY sampled entry inconclusive (nothing consumed) =>
+INCONCLUSIVE. The tally and any rejected entries are saved to
+`results/<target>/<label>/consumer_result`. On the pinned curl build all 20
+sampled entries come back OK - clang-tidy consumes the gcc-recorded database
+cleanly and parses every TU without error, so the check gives meaningful signal
+on a gcc-built target, not noise.
+
+### Fault demo: catching a stripped `-I` (the Stage 6 exit criterion)
+
+The check must demonstrably catch a deliberately broken entry. Because the host
+has no clang, the demo runs IN the container (unlike the replay bad-directory
+fault, a host-side `selftest.sh` fixture). `consumer-fault-demo.sh` is a small,
+labeled in-container one-off run against the curl target image:
+
+```sh
+podman run --rm --systemd=always \
+    -v tests/dogfooding/consumer-loop.sh:/consumer-loop.sh:ro,Z \
+    -v tests/dogfooding/consumer-fault-demo.sh:/demo.sh:ro,Z \
+    bear-dogfood-curl:<sha> sh /demo.sh
+```
+
+It builds curl, takes a known-good entry (`altsvc.c`, which the consumer accepts
+as OK), strips the `-I/src*` flags it needs to find `curl/system.h`, and shows
+the SAME shipped `consumer_cdb` function then reports FAIL for that entry:
+
+```
+good: rc=0 (ok=1 fail=0 inconclusive=0)
+bad:  rc=1 (ok=0 fail=1 inconclusive=0)
+  diag: /src/lib/curl_setup.h:330:10: error: 'curl/system.h' file not found
+DEMO PASSED
+```
+
+The demo exits 0 iff the good entry was OK and the broken entry was caught. No
+JSON is hand-edited beyond removing the one include group; the fault is a real,
+broken database entry.
 
 ## The self-test: catching injected faults (the Stage 4 exit criterion)
 

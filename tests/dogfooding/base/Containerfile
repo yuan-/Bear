@@ -66,6 +66,18 @@ COPY --from=builder /opt/bear /opt/bear
 
 ENV PATH=/opt/bear/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
-# Sanity: the entry script and driver must be present and runnable, and rprof
-# (the metrics capability) must be on PATH.
-RUN bear --version && rprof --version
+# Clang tooling for the clang-consumer check (dogfood-clang-consumer): clang +
+# clang-tools-extra give clangd, clang-tidy, and clang itself. These are CONSUMER
+# tools (like cdb-compare) - they read a captured compilation database and try to
+# build the AST for each entry - so they belong in the final stage, NOT the
+# toolchain-only builder. Every per-target image layers on this base, so the
+# clang-consumer check needs no per-target change. The base grows by the clang
+# install (accepted: it is the tool the database exists to feed).
+RUN dnf -y install clang clang-tools-extra \
+    && dnf -y clean all \
+    && rm -rf /var/cache/dnf
+
+# Sanity: the entry script and driver must be present and runnable, rprof (the
+# metrics capability) must be on PATH, and the clang consumer (clang-tidy, for
+# the clang-consumer check) must run.
+RUN bear --version && rprof --version && clang-tidy --version
