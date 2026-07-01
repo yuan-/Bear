@@ -608,7 +608,6 @@ dependencies = [
  "predicates",
  "serde-saphyr",
  "serde_json",
- "shell-words",
  "tempfile",
  "which",
 ]
