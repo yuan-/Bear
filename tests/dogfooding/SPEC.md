@@ -1,23 +1,39 @@
-# Dogfooding harness specification - Stages 2 through 6
+# Dogfooding harness specification
 
-These are the `dogfood-*` contracts the harness under `tests/dogfooding/`
-satisfies. They are contracts on the TEST HARNESS, not on Bear, so they
-intentionally live here and NOT under `docs/requirements/` (which is reserved
-for Bear's own contracts). They are condensed from the staged plan; the plan is
-the source of intent, this file is the implemented spec.
+This is the maintainer's reference for the harness under `tests/dogfooding/`:
+the `dogfood-*` contracts it satisfies, the rationale behind each check, and how
+to extend it. For running the harness, see `README.md`.
+
+These are contracts on the TEST HARNESS, not on Bear, so they live here and NOT
+under `docs/requirements/` (which is reserved for Bear's own contracts).
 
 Scope: non-automated, run by the maintainer at release time. Bear's installed
-release binaries are run against a real project inside a throwaway container,
-and the captured compilation database is validated. Sources and toolchain live
-only in the container, never in the repo or the devcontainer image
-(feasibility.md Option C). A per-target `VALIDATION` selector in `config.env`
-chooses the per-target validation mode: `golden` (Stage 2, zlib) gates against a
-committed golden; `oracle` (Stage 3, curl) gates against the database CMake
-itself emits. Three target-agnostic Stage 4 checks are selected by flag and need no
-maintained baseline: `--determinism` (run the same target twice and compare the
-two captures), `--invariants` (assert structural invariants on one capture), and
-`--replay[=N]` (replay a sample of entries in their recorded directories). Each
-builds+captures once (twice for determinism) and skips the golden/oracle gate.
+release binaries are run against a real project inside a throwaway container, and
+the captured compilation database is validated. Sources and toolchain live only
+in the container, never in the repo or the devcontainer image (the
+host-orchestrated Podman model, feasibility.md Option C: the orchestrator is
+POSIX `sh` on the host, each target runs in a per-project throwaway container).
+
+## How the contracts are organized
+
+- **Run model** -- how a run is built and how outcomes are classified:
+  `dogfood-run-containerized`, `dogfood-fixed-paths`, `dogfood-pinned-target`,
+  `dogfood-preflight`, `dogfood-build-failure-taxonomy`.
+- **Per-target default validation** -- chosen by a `VALIDATION` selector in the
+  target's `config.env`: `golden` (zlib) or `oracle` (curl). `none` (ffmpeg,
+  kernel) means no default gate; the target is run only with an on-demand check.
+- **On-demand checks** -- selected by flag, need no maintained baseline, run
+  against any target: `dogfood-determinism`, `dogfood-invariants`,
+  `dogfood-replay`, `dogfood-clang-consumer`. Each builds+captures once (twice
+  for determinism) and skips the golden/oracle gate.
+- **Fault demonstrations** -- each check must demonstrably catch a fault:
+  `dogfood-injected-fault` (host-side `selftest.sh`) and the in-container
+  consumer fault demo.
+- **Metrics** -- `dogfood-metrics-collect`, an additive profiling modifier.
+
+The only Rust dependency is the host `cdb-compare` binary (package
+`bear-test-tools`): it does the entire comparison for every check -- matching,
+normalization, and the gate -- so the harness needs no `jq`.
 
 ## dogfood-run-containerized
 
@@ -55,32 +71,6 @@ Implementation: `targets/zlib/config.env` pins the fedora:44 base by digest, the
 zlib 1.3.1 tarball by URL + sha256, and `BUILD_TYPE=Release`
 (`CFLAGS="-O3 -DNDEBUG"`).
 
-## dogfood-golden-regression
-
-For the pinned target, the suite compares Bear's output against a tracked golden
-using `cdb-compare compare` (order-independent multiset equivalence) and flags
-any change. The golden is a frozen, full normalized compilation database emitted
-with `cdb-compare normalize --sort`, committed under `tests/dogfooding/goldens/`
-(NOT under the git-ignored `results/`). The Stage 1 binary is reused as-is; no
-hash-manifest tooling is added. The golden is a change-detector, not an
-independent proof of correctness.
-
-Implementation: `goldens/zlib/compile_commands.json` is the frozen golden; the
-gate is `cdb-compare compare <golden> <fresh>` run on the host. No normalization
-flags are used (same pinned image + fixed `/src` => raw multiset matches); if a
-benign compiler-path diff ever appears, add `--substitute-compiler cc` to both
-the bless and the check, consistently.
-
-## dogfood-golden-rebless
-
-There is a documented, deliberate procedure to regenerate the golden when a
-behavior change is intentional, so re-blessing is explicit and reviewable rather
-than automatic.
-
-Implementation: `run.sh --rebless <target>` runs the full pipeline, then writes
-`cdb-compare normalize --sort <fresh>` to the golden path instead of gating, and
-reports "reblessed" for the maintainer to review and commit. See README.md.
-
 ## dogfood-preflight
 
 Before launching any container, the suite verifies free disk against a
@@ -108,17 +98,44 @@ configure/make), `ERROR=3` (harness or Bear-infra: podman missing, disk/digest
 preflight, base build, empty capture, an oracle that matched 0 TUs, missing host
 `cdb-compare`). `run.sh` prints one final `OUTCOME:` status line.
 
-## dogfood-oracle-cmake (Stage 3)
+## dogfood-golden-regression
+
+For the pinned target, the suite compares Bear's output against a tracked golden
+using `cdb-compare compare` (order-independent multiset equivalence) and flags
+any change. The golden is a frozen, full normalized compilation database emitted
+with `cdb-compare normalize --sort`, committed under `tests/dogfooding/goldens/`
+(NOT under the git-ignored `results/`). The comparison binary is reused as-is; no
+hash-manifest tooling is added. The golden is a change-detector, not an
+independent proof of correctness.
+
+Implementation: `goldens/zlib/compile_commands.json` is the frozen golden; the
+gate is `cdb-compare compare <golden> <fresh>` run on the host. No normalization
+flags are used (same pinned image + fixed `/src` => raw multiset matches); if a
+benign compiler-path diff ever appears, add `--substitute-compiler cc` to both
+the bless and the check, consistently.
+
+## dogfood-golden-rebless
+
+There is a documented, deliberate procedure to regenerate the golden when a
+behavior change is intentional, so re-blessing is explicit and reviewable rather
+than automatic.
+
+Implementation: `run.sh --rebless <target>` runs the full pipeline, then writes
+`cdb-compare normalize --sort <fresh>` to the golden path instead of gating, and
+reports "reblessed" for the maintainer to review and commit. See README.md for
+the maintainer-facing procedure.
+
+## dogfood-oracle-cmake
 
 For a CMake-native target, the suite compares Bear's output against the database
 CMake itself emits (`CMAKE_EXPORT_COMPILE_COMMANDS=ON`), scoped to the
-intersection of translation units matched by `file`. The check passes when
-matched TUs have equivalent flags under normalization. Entries present in only
-one database are logged as "extras", never failures: CMake lists configured TUs
-with configure-time flags, while Bear records the actual make-time command, so
-a whole-database equality would be pure noise. The oracle renews itself when the
+intersection of translation units. The check passes when matched TUs have
+equivalent flags under normalization. Entries present in only one database are
+logged as "extras", never failures: CMake lists configured TUs with
+configure-time flags, while Bear records the actual make-time command, so a
+whole-database equality would be pure noise. The oracle renews itself when the
 target updates; no hand-maintained baseline. The oracle target is curl (CMake-
-native, small); zlib stays the Stage 2 golden target (autotools).
+native, small); zlib stays the golden target (autotools).
 
 Implementation: `targets/curl/config.env` sets `VALIDATION=oracle` and pins the
 fedora:44 base by digest, curl 8.11.1 by URL + sha256, and `BUILD_TYPE=Release`.
@@ -130,24 +147,40 @@ NOT wrapped by Bear (it is not a compile); only `cmake --build` is, so Bear's
 capture lands at `/out/compile_commands.json` and CMake's reference database is
 copied to `/out/oracle.json`. Both are pulled out with `podman cp`.
 
-The comparison is done entirely by the host `cdb-compare` - no jq, no allow-list
-file. Three normalizations plus a gating flag make it correct:
-`--output-from-o` rewrites each `output` to the absolute object path derived
-from the entry's `-o` argument joined with its `directory`, so TUs match by
-source file plus the object they produce. That key is identical across producers
-even though Bear encodes `output` relative to `directory` and CMake relative to
-the build root, and a source compiled into several targets (shared lib, tool)
-stays distinct rather than collapsing onto one key. `--drop-dependency-flags`
-removes the `-M*` depfile group. `--substitute-compiler cc` absorbs any
-compiler-driver path difference. `--intersection` then gates on the `differing`
-set alone, reporting `only_in_a`/`only_in_b` as advisory extras. Exit 0 = matched
-TUs equivalent (PASS); exit 1 = a real matched-TU divergence (FAIL). The harness
-also refuses a vacuous comparison: if 0 TUs matched, the run is an ERROR, not a
-silent pass.
+The comparison is done entirely by the host `cdb-compare` - no allow-list file,
+no shell JSON surgery:
 
-## dogfood-divergence-report (Stage 3)
+```sh
+cdb-compare compare --intersection --substitute-compiler cc \
+    --output-from-o --drop-dependency-flags  <bear.json> <cmake.json>
+```
+
+`tests/tools/SPEC.md` documents what each flag does; the reason each is needed
+*here* is:
+
+- `--output-from-o` - Bear encodes `output` relative to `directory` and CMake
+  relative to the build root, so TUs must match by source plus the absolute
+  object path rather than the raw `output` string; it also keeps a source
+  compiled into several targets (shared lib, tool) distinct.
+- `--drop-dependency-flags` - the make-time compile carries the `-M*` depfile
+  flags and CMake's configure-time export omits them (see
+  dogfood-divergence-report); they touch only the `.d` side-file.
+- `--substitute-compiler cc` - absorbs any compiler-driver path difference
+  between the two producers.
+- `--intersection` - gates on the `differing` set alone, and its non-vacuity
+  clause turns a comparison that matched 0 TUs into a failure rather than a green
+  no-op.
+
+Exit 0 = matched TUs equivalent (PASS); exit 1 = a real matched-TU divergence
+(FAIL).
+
+## dogfood-divergence-report
 
 The Bear-only and CMake-only "extras" are reported for review, never a failure.
+On the pinned build there are 0 Bear-only and ~156 CMake-only extras (CMake
+lists every configured TU, including ones a given build target does not actually
+compile).
+
 The one known-benign argument difference on matched TUs - the dependency-file
 generation flags (`-MD`/`-MMD`/`-MP` and the argument-consuming
 `-MF`/`-MT`/`-MQ`/`-MJ`) - is removed by `cdb-compare --drop-dependency-flags`
@@ -164,13 +197,13 @@ targets - the oracle is self-renewing, so `--rebless` is rejected for them.
 If a future oracle target exhibits a different benign argument difference that
 `--drop-dependency-flags` does not cover, extend the comparator with a tested
 rule rather than reintroducing a shell allow-list - the comparison logic stays
-in one unit-tested place.
+in one unit-tested place (see "Extending cdb-compare" below).
 
-## dogfood-determinism (Stage 4)
+## dogfood-determinism
 
 The suite can run the same target twice and assert Bear's two outputs are
-equivalent under `dogfood-cdb-compare`. Any difference indicates non-determinism
-or a race in Bear itself; the build is its own reference, no golden and no oracle
+equivalent under `cdb-compare`. Any difference indicates non-determinism or a
+race in Bear itself; the build is its own reference, no golden and no oracle
 required. This is target-agnostic: it runs for any target, golden or oracle.
 
 Implementation: `run.sh --determinism <target>` runs the shared preflight, base
@@ -192,26 +225,27 @@ captures differ => FAIL (real Bear non-determinism / a race), with the
 (and `.json`); either build failing for its own reasons => INCONCLUSIVE;
 podman/infra/empty-capture/missing host `cdb-compare` => ERROR. Both captures
 are written as `compile_commands.run1.json` and `compile_commands.run2.json`.
+Determinism is verified on both zlib and curl.
 
-Self-test (the Stage 4 exit criterion - the check must demonstrably catch a
-fault): `run.sh --determinism --inject-fault <target>` perturbs the SECOND build
-with an extra compiler flag so the two builds legitimately diverge, and the
-check is shown to FAIL. The fault is injected as a real, different second build,
-NOT by editing captured JSON by hand: `run.sh` passes a non-empty `INJECT_CFLAGS`
-(an extra `-D...` macro) into the second container only, and each target's
+Self-test (the check must demonstrably catch a fault):
+`run.sh --determinism --inject-fault <target>` perturbs the SECOND build with an
+extra compiler flag so the two builds legitimately diverge, and the check is
+shown to FAIL. The fault is injected as a real, different second build, NOT by
+editing captured JSON by hand: `run.sh` passes a non-empty `INJECT_CFLAGS` (an
+extra `-D...` macro) into the second container only, and each target's
 `config.env` threads `${INJECT_CFLAGS:-}` into that build's compiler flags
 (`CFLAGS` for zlib's configure, `CMAKE_C_FLAGS` for curl's cmake). On a normal
-run and on determinism run 1 the value is empty, a no-op. `run.sh --determinism
-<target>` (no fault) PASSes; the `--inject-fault` variant FAILs. Both directions
-are verified for zlib and curl.
+run and on determinism run 1 the value is empty, a no-op. The FAIL run's
+`determinism-diff.txt` shows the injected flag present in run 2's arguments and
+absent in run 1's. Both directions are verified for zlib and curl.
 
-Scope boundary: the DROPPED, DUPLICATED, and CORRUPTED-ENTRY faults from the
-Stage 4 plan are NOT determinism's territory - they belong to
-`dogfood-invariants` (dropped/duplicated/empty-arguments) and `dogfood-replay`
-(corrupted `directory`), both specified below. Determinism's own fault model is
-a divergent second build, which is exactly what `--inject-fault` exercises.
+Scope boundary: the DROPPED, DUPLICATED, and CORRUPTED-ENTRY faults are NOT
+determinism's territory - they belong to `dogfood-invariants`
+(dropped/duplicated/empty-arguments) and `dogfood-replay` (corrupted
+`directory`), both specified below. Determinism's own fault model is a divergent
+second build, which is exactly what `--inject-fault` exercises.
 
-## dogfood-invariants (Stage 4)
+## dogfood-invariants
 
 For any target, the suite asserts structural invariants on Bear's single
 capture: every entry has non-empty `arguments`, every entry has a non-empty
@@ -227,17 +261,18 @@ builds, and smoke, builds+captures once (`build_and_capture`), then gates on the
 exit code of one host `cdb-compare invariants --drop-dependency-flags
 --expected-objects <N> --tolerance <PCT> --format human <capture>`. The whole
 structural check - non-empty-arguments, non-empty-directory, no-true-duplicates,
-and the entry-count band - lives in the unit-tested comparator; the harness only
-supplies `<N>` and `<PCT>` and gates the exit code (no JSON parsed in shell).
-Exit 0 => PASS;
-exit 1 => FAIL (Bear produced a malformed CDB); a non-1 error or a build/infra
-failure maps to ERROR/INCONCLUSIVE via `build_and_capture`. The human report is
-saved to `results/<target>/<label>/invariants-report.txt`.
+and the entry-count band - lives in the unit-tested comparator (defined in
+`tests/tools/SPEC.md`); the harness only supplies `<N>` and `<PCT>` and gates
+the exit code (no JSON parsed in shell).
+Exit 0 => PASS; exit 1 => FAIL (Bear produced a malformed CDB); a non-1 error or
+a build/infra failure maps to ERROR/INCONCLUSIVE via `build_and_capture`. The
+human report is saved to `results/<target>/<label>/invariants-report.txt`.
 
 The object count `<N>` is taken IN the container before teardown, by a
 per-target `OBJECT_COUNT_CMD` (config.env) written to `/out/object_count` and
 pulled out. The instrument is per-target because "objects produced" is not
 always "*.o files still on disk":
+
 - curl / ffmpeg leave every object on disk, so the default
   `find $OBJECTS_DIR -name '*.o' | wc -l` is exact;
 - zlib's in-tree `make` compiles each source twice (static + PIC) and DELETES
@@ -246,6 +281,7 @@ always "*.o files still on disk":
 - the kernel aggregates objects into built-in.a / linked .o (a `find`
   overcounts) AND a `make -Bn` dry-run does not enumerate its recursive compiles
   (it counts ~0), so it counts Kbuild's per-compile `.foo.o.cmd` files instead.
+
 All are build-system-native, cleanup-independent, Bear-independent. `<PCT>` is
 the per-target `OBJECT_TOLERANCE_PCT`.
 
@@ -261,9 +297,10 @@ Scale: validated on two larger gate-less (`VALIDATION=none`) targets - ffmpeg
 defconfig, ~3000 TUs: Kbuild `.cmd` count 2991 vs entries 3004, a 0.4% match).
 The entry-count band is thus a real coverage cross-check at scale (did Bear
 capture ~every compile?), not just a small-target nicety; entries == objects
-exactly on zlib (34) and curl (221).
+exactly on zlib (34) and curl (221). The kernel run also proves Bear stays
+deterministic and its process-tree teardown holds under a high-`-j` build.
 
-## dogfood-replay (Stage 4)
+## dogfood-replay
 
 The suite takes a sample of Bear's entries and replays each recorded command in
 its recorded `directory` with `-fsyntax-only` appended, asserting the compiler
@@ -280,13 +317,18 @@ container as part of the same `podman run` - the recorded sources and generated
 headers exist there only before teardown. The replay loop is one POSIX function
 (`replay-loop.sh`) read into the in-container script; the in-image
 `/opt/bear/bin/cdb-compare sample <capture> --count N --build-dir <BUILD_DIR>`
-selects up to N replayable entries (build-dir-aware) and emits one shell-quoted
-replay line per entry (`directory` then argv). Each is replayed as
-`( cd "$dir" && "$@" -fsyntax-only )` and tallied: OK (compiler accepted the
-args), INCONCLUSIVE (the failure stderr matches a missing-file diagnostic - "No
-such file" / "file not found" / "not found" - a build-time input gone after
-teardown), or FAIL (any other failure, including a `directory` that does not
-exist - a corrupted-directory fault, caught before the compile by a `-d` test).
+selects up to N replayable entries (build-dir-aware ranking is defined in
+`tests/tools/SPEC.md`) and emits one shell-quoted replay line per entry
+(`directory` then argv). Each is replayed as
+`( cd "$dir" && "$@" -fsyntax-only )` and tallied:
+
+- **OK** - the compiler accepted the recorded arguments.
+- **INCONCLUSIVE** - the failure stderr matches a missing-file diagnostic ("No
+  such file" / "file not found" / "not found") - a build-time input gone after
+  teardown.
+- **FAIL** - any other failure, including a `directory` that does not exist (a
+  corrupted-directory fault, caught before the compile by a `-d` test).
+
 The function writes its tally and any failing commands to `/out/replay_result`
 and its return code to `/out/replay_rc`, both pulled out and gated on without
 parsing JSON. `BUILD_DIR` comes from config.env (curl `/build`; zlib has no
@@ -298,17 +340,16 @@ inconclusive (nothing actually verified) => INCONCLUSIVE (replay must not pass
 vacuously). On the pinned builds all 20 sampled entries replay OK for both zlib
 and curl (0 FAIL, 0 INCONCLUSIVE).
 
-## dogfood-clang-consumer (Stage 6)
+## dogfood-clang-consumer
 
-The one real deliverable of the slimmed Stage 6. Feed a sample of the captured
-database to a REAL clang-tooling consumer over the recorded entries, IN-container,
-and assert the tool accepts each. This is the only check that validates the
-database WORKS in the tool it exists for - catching a structurally-valid but
-semantically-broken DB (a wrong/missing `-I`, a dropped `-x`, a missing sysroot)
-that the structural invariants and the replay check both miss. Same shape as
-dogfood-replay: reuse `cdb-compare sample`, categorize OK / FAIL / INCONCLUSIVE,
-non-vacuous (an all-inconclusive or empty sample is INCONCLUSIVE, never a vacuous
-PASS).
+Feed a sample of the captured database to a REAL clang-tooling consumer over the
+recorded entries, IN-container, and assert the tool accepts each. This is the
+only check that validates the database WORKS in the tool it exists for -
+catching a structurally-valid but semantically-broken DB (a wrong/missing `-I`,
+a dropped `-x`, a missing sysroot) that the structural invariants and the replay
+check both miss. Same shape as dogfood-replay: reuse `cdb-compare sample`,
+categorize OK / FAIL / INCONCLUSIVE, non-vacuous (an all-inconclusive or empty
+sample is INCONCLUSIVE, never a vacuous PASS).
 
 Implementation: `run.sh --consumer[=N] <target>` (default N=20; also `--consumer
 N`) runs the shared pipeline, builds+captures once, and runs the consumer INSIDE
@@ -343,6 +384,7 @@ with no lint check does a pure parse, so the only `error:` diagnostics are
 genuine front-end errors.
 
 Categorization (keyed on clang-tidy's `error:` diagnostics):
+
 - **OK** - zero `error:` diagnostics: clang-tidy parsed the TU and built the AST
   from Bear's recorded command. Warnings are expected on a gcc TU under clang and
   are NOT a defect.
@@ -386,14 +428,14 @@ in the final stage. Every per-target image layers on this base, so the check nee
 no per-target change; `BUILD_DIR` from config.env (reused as the sampler's
 `--build-dir`) is the only per-target input.
 
-## dogfood-clang-consumer fault demonstration (Stage 6 exit criterion)
+### Consumer fault demonstration
 
-The exit criterion requires the check to catch a deliberately broken entry: a
-stripped `-I` the tool then rejects. Unlike the replay bad-directory fault (a
-host-side fixture in `selftest.sh`), this demo MUST run where clang exists - IN
-the build container - because the host has no compiler. It is therefore a small,
-clearly-labeled in-container one-off, `consumer-fault-demo.sh`, run by the
-maintainer against the curl target image:
+The check must catch a deliberately broken entry: a stripped `-I` the tool then
+rejects. Unlike the replay bad-directory fault (a host-side fixture in
+`selftest.sh`), this demo MUST run where clang exists - IN the build container -
+because the host has no compiler. It is a small, clearly-labeled in-container
+one-off, `consumer-fault-demo.sh`, run by the maintainer against the curl target
+image:
 
 ```sh
 podman run --rm --systemd=always \
@@ -407,18 +449,23 @@ entry the consumer accepts (`altsvc.c` => OK), strips the `-I/src*` flags that
 TU needs to find `curl/system.h`, and shows the SAME shipped `consumer_cdb`
 function now reports FAIL for that entry. No JSON is hand-edited beyond removing
 the one include group; the fault is a real, broken database entry. The demo
-exits 0 iff the good entry was OK (rc 0) and the broken entry was caught (rc 1).
-Observed: `good: rc=0 (ok=1 fail=0 inconclusive=0)`, `bad: rc=1 (ok=0 fail=1
-inconclusive=0)`, diagnostic `error: 'curl/system.h' file not found`,
-`DEMO PASSED`.
+exits 0 iff the good entry was OK (rc 0) and the broken entry was caught (rc 1):
 
-## dogfood-injected-fault demonstration (Stage 4 exit criterion)
+```
+good: rc=0 (ok=1 fail=0 inconclusive=0)
+bad:  rc=1 (ok=0 fail=1 inconclusive=0)
+  diag: /src/lib/curl_setup.h:330:10: error: 'curl/system.h' file not found
+DEMO PASSED
+```
 
-The Stage 4 exit criterion requires the checks to demonstrably catch an injected
-fault - a dropped entry, a duplicated entry, and a corrupted `directory`. This
-is demonstrated WITHOUT a container by `selftest.sh` against tiny, committed,
-hand-written fault fixtures under `faults/` (so the fault is unambiguous and not
-the product of fragile in-shell JSON surgery on a real capture):
+## dogfood-injected-fault
+
+The invariants and replay checks must demonstrably catch injected faults - a
+dropped entry, a duplicated entry, an empty/blank field, and a corrupted
+`directory`. This is demonstrated WITHOUT a container by `selftest.sh` against
+tiny, committed, hand-written fault fixtures under `faults/` (so the fault is
+unambiguous and not the product of fragile in-shell JSON surgery on a real
+capture):
 
 - `faults/duplicate.json` - two byte-identical entries => `cdb-compare
   invariants` FAILS its no-true-duplicates check.
@@ -439,11 +486,10 @@ the product of fragile in-shell JSON surgery on a real capture):
 fixtures and the SAME `replay-loop.sh` function (host-side) against the
 bad-directory fixture, asserts each check exits non-zero (the fault was caught),
 adds a control that an honest CDB passes (no false positive), and prints a clear
-pass/fail. It needs no container and no `jq`, so it is fast and is the
-demonstrable-fault-catching deliverable. It is invoked as
+pass/fail. It needs no container, so it is fast. It is invoked as
 `tests/dogfooding/selftest.sh`.
 
-## dogfood-metrics-collect (Stage 5)
+## dogfood-metrics-collect
 
 While Bear builds a target, the suite can profile `bear-driver`'s CPU and memory
 with rprof (github.com/rizsotto/rprof) and keep the full capture as an artifact.
@@ -454,9 +500,7 @@ preload and `bear-wrapper` are not profiled.
 
 This is intentionally NOT automated: the harness only COLLECTS the rprof JSONL -
 it never parses or summarizes it. The maintainer runs `rprof view` afterward to
-render and compare runs. (The in-run previous-release baseline and metrics-delta
-from plan.md Stage 5 are deliberately deferred; this scope is just the rprof
-capability.)
+render and compare runs.
 
 Implementation: rprof (pinned to its `v1.0.0` release) is baked into the base
 image via the existing multi-stage build - compiled in the toolchain-carrying
@@ -474,3 +518,38 @@ determinism / invariants / replay), and on a gate-less (`VALIDATION=none`) targe
 with no check mode it stands alone as a profiled build whose deliverable is the
 artifact. The metrics file is advisory - a missing file warns, never fails - and
 the wrapping is runner-controlled (rprof in the base is harmless when unused).
+
+## Adding a new target
+
+A target is a directory under `targets/<name>/` with a `config.env` and whatever
+in-container build glue it needs. `config.env` fields (see the existing targets
+for working examples):
+
+| Field | Purpose |
+|---|---|
+| `VALIDATION` | `golden`, `oracle`, or `none`. Omit to default to `golden`. `none` means no default gate; the target runs only with an on-demand check. |
+| `BASE_IMAGE` | The base image pinned by digest (dogfood-pinned-target). |
+| `<NAME>_VERSION` / `<NAME>_URL` | The source revision, pinned by URL + sha256. |
+| `BUILD_TYPE` | Release by default; pins the recorded flags. |
+| `SRC_DIR` / `BUILD_DIR` / `OBJECTS_DIR` | Fixed container paths (dogfood-fixed-paths). `BUILD_DIR` is also the sampler's `--build-dir` for replay/consumer. |
+| `OBJECT_COUNT_CMD` | Build-system-native object count for the invariants entry-count cross-check. Omit to use the default (`find` for `*.o` under `OBJECTS_DIR`). See dogfood-invariants for why this is per-target. |
+| `OBJECT_TOLERANCE_PCT` | Tolerance band for entry-count. |
+| `MIN_FREE_KIB` | Preflight free-disk minimum on the podman graphroot. |
+| `TARGET_BUILD_CMD` | The in-container build command; thread `${INJECT_CFLAGS:-}` into its compiler flags so `--inject-fault` works (dogfood-determinism). |
+
+For a golden target, add `goldens/<name>/compile_commands.json` by running
+`run.sh --rebless <name>` once and committing the result. For an oracle target,
+the build must emit its own reference database and the harness compares against
+it -- no committed baseline. A `none` target needs neither; it is exercised only
+by `--invariants` / `--determinism` / `--replay` / `--consumer`.
+
+## Extending cdb-compare
+
+Every comparison, normalization, and structural check lives in the host
+`cdb-compare` binary (package `bear-test-tools`, `crates`/`tests/tools`), not in
+shell. That is deliberate: the logic is unit-tested in one place. When a target
+surfaces a new benign difference (e.g. an oracle argument mismatch that
+`--drop-dependency-flags` does not cover, or a new structural invariant), add a
+tested rule to `cdb-compare` and select it with a flag from `run.sh` - do NOT
+add a shell allow-list or a `jq` heuristic. See `tests/tools/SPEC.md` for the
+comparator's normalization and matching model.

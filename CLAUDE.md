@@ -53,7 +53,7 @@ These files contain rules, context, and constraints specific to that area.
 | Touch driver-side interception (supervise, collector, build env) | `crates/intercept-supervisor/CLAUDE.md` |
 | Touch the shell-completions binary | `crates/bear-completions/CLAUDE.md` |
 | Write or modify integration tests | `tests/integration/CLAUDE.md` |
-| Edit the test-tooling comparator or normalization | `tests/tools/CLAUDE.md` |
+| Edit the test-tooling comparator or normalization | `tests/tools/CLAUDE.md` (behavior in `tests/tools/SPEC.md`) |
 | Edit or regenerate the man page | `man/CLAUDE.md` |
 | Find project documentation or how it is organized | `docs/CLAUDE.md` |
 | Add, modify, or review a requirement (contract) | `docs/requirements/CLAUDE.md` |
