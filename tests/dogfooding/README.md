@@ -45,16 +45,6 @@ rejected with a pointer to those flags.
   (`/etc/systemd/system/user@.service.d/delegate.conf` with
   `Delegate=cpu cpuset io memory pids`).
 
-- **No host `cdb-compare` needed.** Every comparison runs the `cdb-compare` that
-  ships inside the target image, so the harness needs no host binary and there is
-  no glibc-mismatch risk from copying one out. The one exception is the
-  container-less `internal/selftest.sh` (below), which builds and runs the
-  comparator locally in the same environment:
-
-  ```sh
-  cargo build --release -p bear-test-tools --bin cdb-compare
-  ```
-
 - **Free disk** on the podman graphroot (zlib needs ~2 GiB, curl ~4 GiB for the
   images plus the build tree). The harness preflight checks this against each
   target's `MIN_FREE_KIB`.
@@ -87,6 +77,8 @@ tests/dogfooding/run.sh --keep                 # keep the container for inspecti
 tests/dogfooding/run.sh --metrics ffmpeg       # also profile bear-driver (see below)
 
 # Prove the checks actually catch faults, without a container (fast).
+# This one runs the comparator on the host, so build it first:
+#   cargo build --release -p bear-test-tools --bin cdb-compare
 tests/dogfooding/internal/selftest.sh
 ```
 
