@@ -11,8 +11,8 @@ Scope: non-automated, run by the maintainer at release time. Bear's installed
 release binaries are run against a real project inside a throwaway container, and
 the captured compilation database is validated. Sources and toolchain live only
 in the container, never in the repo or the devcontainer image (the
-host-orchestrated Podman model, feasibility.md Option C: the orchestrator is
-POSIX `sh` on the host, each target runs in a per-project throwaway container).
+host-orchestrated Podman model: the orchestrator is POSIX `sh` on the host,
+each target runs in a per-project throwaway container).
 
 ## How the contracts are organized
 

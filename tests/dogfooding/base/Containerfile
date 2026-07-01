@@ -7,7 +7,7 @@
 # tree and the devcontainer image stay unmodified).
 #
 # Multi-stage: the builder carries the Rust toolchain; the final stage does
-# not (no toolchain in the shipped base, per feasibility.md section 7).
+# not, so the shipped base stays free of a build toolchain.
 
 # ARG must precede the first FROM so it can parameterize the base image; both
 # stages reference the same pinned digest.
@@ -48,8 +48,8 @@ RUN cargo build --release \
 # by release tag, baked into the base so the harness can profile bear-driver's
 # CPU/memory during a build (dogfood-metrics-collect). Built here in the
 # toolchain-carrying builder and installed into /opt/bear/bin so the final stage
-# inherits it on PATH with no Rust toolchain (feasibility.md: multi-stage, copy
-# the binary). rprof measures the single launched process and ignores its
+# inherits it on PATH with no Rust toolchain (multi-stage: copy just the
+# binary). rprof measures the single launched process and ignores its
 # descendants, so `rprof run -- bear -- <build>` profiles exactly bear-driver
 # (the `bear` entry script execs the driver; the compilers are descendants).
 ARG RPROF_REF=v1.0.0

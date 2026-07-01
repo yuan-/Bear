@@ -67,7 +67,8 @@
 #
 # Outcomes / exit codes (dogfood-build-failure-taxonomy):
 #   PASS=0  FAIL=1  INCONCLUSIVE=2  ERROR=3
-# Runtime model: host-orchestrated rootless Podman (feasibility.md Option C).
+# Runtime model: the orchestrator is POSIX sh on the host, each target runs in
+# its own per-project throwaway rootless Podman container.
 
 set -eu
 
